@@ -25,7 +25,7 @@ def workflow_sha256():
     """Fingerprint prompt assembly, pipeline and shared behavior for comparisons."""
     here = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    for name in ("agent.py", "agent_pipeline.py", "pipeline_rules.py", "evidence_rules.py", "common.py"):
+    for name in ("agent.py", "agent_pipeline.py", "pipeline_rules.py", "evidence_rules.py", "intent_contract.py", "common.py"):
         digest.update(name.encode("utf-8"))
         digest.update((here / name).read_bytes())
     return digest.hexdigest()

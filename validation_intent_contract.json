@@ -1,0 +1,8 @@
+{
+  "workflow_sha256": "52eab3a6309ea27481d0d2295ab44e3ea01721d5f2c69c49ada2a60ccc5e1b10",
+  "unit_tests_passed": 117,
+  "samples": 100,
+  "gold_calls_checked": 230,
+  "checker_failures": [],
+  "qwen_rerun": false
+}

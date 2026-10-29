@@ -10,6 +10,8 @@ from agent import (
     valid_ask,
 )
 from evidence_rules import read_invalidated, write_evidence_issue, lottery_reference_issue
+from intent_contract import (intent_fields, request_done_error, intent_value_error,
+                             branch_write_error, effect_error, SUPPORTED_EFFECTS)
 from common import allowed_specs, dumps, result_facts, result_succeeded
 from pipeline_rules import (
     canonicalize_sms_destination, known_answer_for_ask,
@@ -100,7 +102,8 @@ def done_evidence_error(candidate, goals, observations):
     for goal_id, index in completed.items():
         if (not isinstance(index, int) or isinstance(index, bool)
                 or index < 0 or index >= len(observations)
-                or not result_succeeded(observations[index]["result"])):
+                or not result_succeeded(observations[index]["result"])
+                or observations[index].get("effect_verified") is False):
             return "Goal hoàn tất cần index của kết quả tool thành công."
         goal = goal_map[goal_id]
         observation = observations[index]
@@ -383,6 +386,11 @@ class Agent(PromptAgent):
                         goals = new_goals
                         event["added_goals"] = goals
             if choice["type"] == "done":
+                coverage_error = request_done_error(transcript, specs, observations, row)
+                if coverage_error:
+                    if reject(event, "planner", "incomplete_request", extra={"reason": coverage_error}):
+                        break
+                    continue
                 if goals:
                     done_error = done_evidence_error(choice, goals, observations)
                     if done_error:
@@ -505,6 +513,11 @@ class Agent(PromptAgent):
                 name, selected_arguments, transcript)
             if dropped:
                 event["dropped_optional_fields"] = dropped
+            essential = intent_fields(name, transcript, spec)
+            added = sorted(set(essential) - set(selected_arguments))
+            selected_arguments = list(dict.fromkeys([*selected_arguments, *essential]))
+            if added:
+                event["intent_added_fields"] = added
             event["selected_arguments"] = selected_arguments
             hints = value_hints(name, transcript, row, observations, spec)
             trusted = trusted_value_hints(name, hints)
@@ -521,6 +534,39 @@ class Agent(PromptAgent):
                     break
                 event["argument_output"] = value_output["text"]
                 values = parse_object(value_output["text"])
+                repair = (values.get("issue") if isinstance(values, dict) else None)
+                if isinstance(values, dict) and isinstance(values.get("arguments"), dict):
+                    extra_fields = set(values["arguments"]) - set(selected_arguments)
+                    if extra_fields:
+                        repair = {"type": "argument_selection_error", "fields": sorted(extra_fields),
+                                  "reason": "Value selector nhận thấy field chưa được chọn."}
+                if isinstance(repair, dict) and repair.get("type") == "argument_selection_error":
+                    proposed = repair.get("fields")
+                    properties = set(params.get("properties") or {})
+                    if (isinstance(proposed, list) and proposed and all(isinstance(f, str) for f in proposed)
+                            and set(proposed) <= properties):
+                        saved_feedback = feedback
+                        feedback = {"error": "argument_selection_error", "tool": name,
+                                    "issue": repair, "selected_arguments": selected_arguments}
+                        try:
+                            corrected = generate("select_arguments", selected_tool=spec,
+                                                 tool_reason=choice["tool_reason"], selected_arguments=selected_arguments)
+                            candidate_fields = parse_object(corrected["text"])
+                            new_fields, correction_error = select_argument_fields(candidate_fields, spec)
+                            if not correction_error:
+                                new_fields, _ = optional_fields_for_intent(name, new_fields, transcript)
+                                selected_arguments = list(dict.fromkeys([*new_fields, *essential]))
+                                event["selector_repair"] = {"issue": repair, "output": corrected["text"]}
+                                event["selected_arguments"] = selected_arguments
+                                value_output = generate("fill", selected_tool=spec,
+                                                        tool_reason=choice["tool_reason"],
+                                                        selected_arguments=selected_arguments, value_hints=hints)
+                                values = parse_object(value_output["text"])
+                                event["argument_output_after_repair"] = value_output["text"]
+                        except ValueError as exc:
+                            event["selector_repair_error"] = str(exc)
+                        finally:
+                            feedback = saved_feedback
                 issue, issue_error = selector_issue(values, spec, selected_arguments)
                 if issue or issue_error:
                     safe_broad_read = (spec.get("kind") == "read"
@@ -572,7 +618,8 @@ class Agent(PromptAgent):
             action = {**selection, "selected_arguments": selected_arguments, **values}
             event["action"] = action
             args = action["arguments"]
-            missing = missing_fields(spec, args, selected_arguments)
+            missing = sorted(set(missing_fields(spec, args, selected_arguments))
+                             | {field for field in essential if args.get(field) in (None, "", [], {})})
             if missing:
                 issue = {"type": "missing_data", "fields": missing,
                          "reason": "Thiếu giá trị bắt buộc hoặc một nhóm x-one-of"}
@@ -598,6 +645,18 @@ class Agent(PromptAgent):
                 if reject(event, "value_selection", "semantic_value", issue=issue):
                     break
                 continue
+            field, reason = intent_value_error(name, args, transcript)
+            if field:
+                if reject(event, "value_selection", "intent_value_mismatch",
+                          issue={"type": "missing_data", "fields": [field], "reason": reason}):
+                    break
+                continue
+            if spec.get("kind") == "write":
+                branch_error = branch_write_error(name, transcript, observations)
+                if branch_error:
+                    if reject(event, "validation", "branch_not_ready", extra={"reason": branch_error}):
+                        break
+                    continue
             reference_issue = lottery_reference_issue(name, transcript, row, observations)
             if reference_issue:
                 if reject(event, "validation", "ambiguous_reference", issue=reference_issue):
@@ -622,7 +681,7 @@ class Agent(PromptAgent):
                     break
                 continue
             if (spec.get("kind") == "write" and any(
-                    repeated_write(prior, name, args) for prior in observations)):
+                    prior.get("effect_verified") is not False and repeated_write(prior, name, args) for prior in observations)):
                 if reject(event, "validation", "duplicate_successful_write",
                           extra={"reason": "Cùng hành động trên cùng đối tượng đã thành công trong request."}):
                     break
@@ -641,8 +700,12 @@ class Agent(PromptAgent):
             result = env.call(name, args)
             event["tool_result"] = result
             event["tool_succeeded"] = result_succeeded(result)
+            effect = effect_error(name, args, result)
+            effect_verified = (effect is None) if name in SUPPORTED_EFFECTS else None
+            event["effect_check"] = {"supported": name in SUPPORTED_EFFECTS,
+                                     "ok": effect_verified, "error": effect}
             observations.append({"name": name, "kind": spec.get("kind"),
-                                 "arguments": args, "result": result})
+                                 "arguments": args, "result": result, "effect_verified": effect_verified})
             trace.append(event)
             repair_streak, last_failure = 0, None
             new_facts = result_facts(result) - known_facts
@@ -652,6 +715,9 @@ class Agent(PromptAgent):
                 no_progress_streak += 1
                 feedback = {"error": "tool_not_done", "tool": name,
                             "result": result}
+            elif effect:
+                no_progress_streak += 1
+                feedback = {"error": "effect_mismatch", "tool": name, "reason": effect}
             elif spec.get("kind") == "read" and not new_facts:
                 no_progress_streak += 1
                 no_progress_total += 1

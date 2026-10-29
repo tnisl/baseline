@@ -186,7 +186,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(feedback["error"], "invalid_argument_proposal")
 
     def test_qwen_selects_optional_filter_without_reasons(self):
-        row = sample("train_0236")
+        row = {**sample("train_0236"), "audio_text": "Liệt kê hóa đơn truyền hình"}
         call = {"type": "call", "name": "bill_payment.list_bills",
                 "tool_reason": "Tìm hóa đơn truyền hình",
                 "goals": [{"id": "list", "task": "Xem hóa đơn truyền hình",
@@ -220,7 +220,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("x-one-of", error)
 
     def test_zero_argument_tool_skips_both_selectors(self):
-        row = sample("train_0236")
+        row = {**sample("train_0236"), "audio_text": "Xem số dư ví"}
         call = {"type": "call", "name": "ewallet.get_balance",
                 "tool_reason": "Đọc số dư ví",
                 "goals": [{"id": "balance", "task": "Xem số dư ví",
@@ -291,7 +291,7 @@ class PipelineTests(unittest.TestCase):
             {"type": "ask", "tool_name": "bill_payment.pay", "params": ["source"],
              "tool_reason": "Cần biết nguồn thanh toán"},
         ], row)
-        self.assertEqual(outcome["trace"][1]["error"]["error"], "premature_done")
+        self.assertEqual(outcome["trace"][1]["error"]["error"], "incomplete_request")
         self.assertEqual(outcome["stop_reason"], "ask_missing_info")
 
     def test_done_evidence_rejects_wrong_kind(self):
@@ -344,7 +344,7 @@ class PipelineTests(unittest.TestCase):
             "email.create_draft", ["to"], self.catalog, []), "contacts.search")
 
     def test_planner_receives_compact_catalog_and_goal_plan(self):
-        row = sample("train_0236")
+        row = {**sample("train_0236"), "audio_text": "Cảm ơn"}
         llm, _ = self.run_agent([
             {"type": "done", "goals": []},
         ], row)

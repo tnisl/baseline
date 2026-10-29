@@ -6,6 +6,7 @@ import time
 from collections import Counter
 
 from evidence_rules import reference_candidates
+from intent_contract import request_requirements, intent_fields
 from common import allowed_specs, compact_history, dumps, folded_tokens, leaves, result_facts, result_succeeded
 from grounding_qwen import check_sources, repair_source_paths
 from node_reviews import review_node
@@ -24,7 +25,8 @@ Input JSON:
 - validation_feedback: lỗi bước trước; suggested_lookup là tool đọc đúng nguồn field còn thiếu; evidence_options là các index có thể dùng.
 
 #Objective#
-Chọn MỘT bước và hoàn thành đủ yêu cầu.
+Trước khi chọn action, kiểm lần lượt: các kết quả user yêu cầu; phần đã xong; điều kiện bước tiếp; dữ kiện còn thiếu. Chỉ xuất JSON, không viết chuỗi suy luận dài.
+Chọn MỘT bước và hoàn thành đủ yêu cầu. request_requirements là checklist từ code cho một số hành động rõ; active phải hoàn thành, inactive không thực hiện, unknown cần làm rõ. Checklist có thể chưa đủ, vẫn phải đọc toàn bộ request.
 1. Đọc toàn bộ request, giữ câu sửa cuối và kênh giao tiếp được chỉ định. Phân biệt tra cứu, tạo mới, cập nhật bản ghi, ghi nhận việc đã diễn ra. Phủ định là ràng buộc, không phải một hành động phải gọi tool. Không kéo việc cũ từ history vào goal mới.
 2. Lượt đầu lập đủ goal cho TỪNG kết quả độc lập. Mỗi hành động trong từng nhánh có goal riêng. when là điều kiện bằng lời từ user; không tự đặt ngưỡng, không ghi always cho hai nhánh loại trừ nhau. Tra ID/số dư/menu để phục vụ write là bước phụ, không phải goal. Tính toán/đọc thông tin là read, không phải write.
 3. Xác định điều kiện bằng dữ kiện đúng đối tượng. Đủ tiền nghĩa là số dư >= khoản phải trả; nhiều khoản phải so tổng. Giờ đến, giờ đón và giờ nhắc là các mốc khác nhau; tính ngược đủ thời gian di chuyển và khoảng cách user yêu cầu. Với ngày mai/thứ trong tuần dùng current_time và timezone.
@@ -62,7 +64,7 @@ Chọn field BỔ SUNG cần cho chính bước selected_tool. Không điền va
 - Không chọn lại required. Với x-one-of, chọn đủ phần còn thiếu của MỘT nhóm: OR giữa nhóm, AND trong nhóm. Người nhận gọi bằng tên/quan hệ: ưu tiên contact_id để tra danh bạ; phone_number chỉ khi biết số đúng người.
 - Optional chỉ chọn khi user yêu cầu thuộc tính của chính hành động. Không chép giá trị trạng thái đang có vào optional. Bật đèn cần power, chỉnh mờ cần brightness; không tự thêm brightness khi chỉ bật. Giờ lời nhắc không phải delay thiết bị. Số lượng user nói rõ phải được chọn, dù tool có default.
 - Read/list có thể truyền {} và lọc từ kết quả; tránh filter làm mất bản ghi cần cho bước khác. Search query lấy tên/chủ đề user nêu, không đòi biết kết quả trước khi tìm. Nguồn tiền không phải loại hóa đơn.
-- Đánh giá BƯỚC đang chọn, không đòi read/search phải thực hiện cả yêu cầu write. Thiếu value chuyển value selector; không gọi unsupported_tool vì chưa biết ID.
+- Đánh giá BƯỚC đang chọn, không đòi read/search phải thực hiện cả yêu cầu write. Thiếu value chuyển value selector; không gọi unsupported_tool vì chưa biết ID. intent_required_fields phải được chọn dù optional trong schema. validation_feedback.argument_selection_error yêu cầu xem lại lựa chọn field cho cùng tool.
 #Style#
 Tên key/field chính xác theo schema; JSON ngắn.
 #Tone#
@@ -86,7 +88,7 @@ Input JSON:
 - history: lời user cũ và tool results để giải tham chiếu; lời assistant không tạo dữ kiện hoặc yêu cầu mới.
 - tool_observations: name/arguments/result/index; chỉ result thành công là bằng chứng đã làm.
 - selected_tool: schema input trong parameters.properties; required và x-one-of là ràng buộc. returns là output.
-- selected_arguments: danh sách ĐÓNG các field được điền.
+- selected_arguments: danh sách ĐÓNG các field được điền. intent_required_fields là thuộc tính cần có để đáp ứng ý định dù optional trong schema.
 - reference_candidates: bản ghi đã thấy của đúng x-ref, nhóm theo field; có thể rỗng. Phải chọn đúng loại, người/vật và bản ghi, không chọn chỉ vì ID xuất hiện.
 - value_hints: gợi ý từ dữ kiện hiển thị, phải kiểm lại quan hệ và tính duy nhất. Chỉ trusted_value_hints mới được code dùng làm ràng buộc; không coi mọi hint là đáp án.
 - tool_reason: mục tiêu bước, không phải bằng chứng. validation_feedback: lỗi cũ để sửa, không phải nguồn value. executed_calls không chứng minh thành công.
@@ -109,7 +111,8 @@ Chỉ MỘT trong ba JSON object, không markdown:
 Điền được: {"arguments":{"<field>":<giá trị JSON đúng type>},"value_reasons":{"<field>":"<căn cứ chọn đúng value>"}}
 Không cần field nào: {"arguments":{},"value_reasons":{}}. Chỉ khi không có required/x-one-of và {} vẫn đáp ứng bước.
 Thiếu dữ liệu: {"issue":{"type":"missing_data","fields":["<field>"],"reason":"<cần tra dữ kiện gì>"}}
-Nhiều ứng viên: dùng cùng dạng issue với type="ambiguous_target". fields không rỗng, không trùng, thuộc selected_arguments. Không ghép issue với arguments/value_reasons. Nếu không xác định được value cần thiết thì chỉ issue.
+Nếu thiếu tên field cần thiết trong selected_arguments, chỉ trả {"issue":{"type":"argument_selection_error","fields":["<tên field thật trong schema>"],"reason":"<vì sao cần field>"}} để sửa ở argument selector, không tự thêm field vào arguments.
+Nhiều ứng viên: dùng cùng dạng issue với type="ambiguous_target". Với missing_data/ambiguous_target, fields không rỗng, không trùng, thuộc selected_arguments; riêng argument_selection_error chỉ dùng field thật trong schema chưa được chọn. Không ghép issue với arguments/value_reasons. Nếu không xác định được value cần thiết thì chỉ issue.
 """
 
 def parse_action(text):
@@ -331,6 +334,7 @@ class Agent:
             observed.append({
                 "index": index, "kind": item.get("kind"), "origin": item.get("origin", "current"),
                 "succeeded": result_succeeded(item["result"]),
+                "effect_verified": item.get("effect_verified"),
                 "name": item["name"], "arguments": item["arguments"],
                 "result": (item["result"] if len(serialized) <= 12000
                            else serialized[:12000] + " [truncated]"),
@@ -355,21 +359,29 @@ class Agent:
                             "validation_feedback")}
                 if getattr(self, "include_task_plan", False):
                     payload["task_plan"] = planner_goals
+                    payload["request_requirements"] = request_requirements(transcript,
+                        {item["name"]: item for item in specs}, observations, row)
                     payload["execution_status"] = [
                         {"index": i, "name": item["name"], "kind": item.get("kind"),
-                         "succeeded": result_succeeded(item["result"])}
+                         "succeeded": result_succeeded(item["result"]),
+                         "effect_verified": item.get("effect_verified")}
                         for i, item in enumerate(observations)]
             elif phase == "select_arguments":
                 payload = {key: payload[key] for key in
                            ("request", "context", "history", "tool_observations")}
                 payload["selected_tool"] = selected_tool
                 payload["tool_reason"] = tool_reason
+                if getattr(self, "include_task_plan", False):
+                    payload["validation_feedback"] = feedback
+                    payload["selected_arguments"] = selected_arguments
+                    payload["intent_required_fields"] = intent_fields(selected_tool["name"], transcript, selected_tool)
             elif phase == "fill":
                 payload.pop("available_tools")
                 payload["selected_tool"] = selected_tool
                 payload["tool_reason"] = tool_reason
                 if getattr(self, "include_task_plan", False):
                     payload["reference_candidates"] = reference_candidates(selected_tool, row, observations)
+                    payload["intent_required_fields"] = intent_fields(selected_tool["name"], transcript, selected_tool)
                 if value_hints:
                     payload["value_hints"] = value_hints
                     if getattr(self, "include_task_plan", False):
