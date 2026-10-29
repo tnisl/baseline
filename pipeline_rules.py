@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+from evidence_rules import reference_error
 from common import dumps, folded_tokens, result_succeeded
 
 
@@ -13,6 +14,9 @@ def optional_fields_for_intent(tool_name, fields, request):
     kept = []
     for field in fields:
         unsupported = (
+            tool_name == "smart_home.light_set" and field == "brightness"
+            and not re.search(r"sáng|mờ|phần trăm|%", text)
+        ) or (
             tool_name == "home_security.list_alerts" and field == "since"
             and not re.search(r"\b(từ|sau|kể từ|trong vòng|trong \d+)\b", text)
         ) or (
@@ -32,6 +36,12 @@ def optional_fields_for_intent(tool_name, fields, request):
 def tool_action_error(tool_name, request):
     """Reject a few clearly different, state-changing actions before selectors run."""
     text = request.casefold()
+    if tool_name.startswith("chat_ott.") and re.search(r"rep\s*mail|trả lời (?:email|mail)", text):
+        return "Yêu cầu trả lời email; dùng email.reply và ID email đã thấy."
+    if tool_name == "calendar.create_event" and re.search(r"học.*(?:từ|đến).*cộng.*(?:giúp|giùm)", text):
+        return "Ghi nhận thời gian học đã diễn ra bằng learning.log_progress, không tạo lịch."
+    if tool_name == "podcast_radio.play" and re.search(r"(?:à thôi|thôi.*khách).*c(?:oi|ó).*tập", text):
+        return "User đã hủy phát; chỉ tìm nội dung bằng podcast_radio.search."
     if (tool_name == "medication.add" and "uống" in text
             and ("đã" in text or "rồi" in text)
             and any(word in text for word in ("ghi lại", "ghi nhận", "đánh dấu"))
@@ -102,6 +112,13 @@ def value_hints(tool_name, request, row, observations, spec=None):
     """Only facts with an unambiguous deterministic derivation are hinted."""
     hints = {}
     text = request.casefold()
+    if tool_name == "weather.get_forecast" and re.search(r"\bmai\b", text):
+        from datetime import datetime, timedelta
+        try:
+            now = datetime.fromisoformat(row.get("context", {}).get("current_time", ""))
+            hints["date"] = (now + timedelta(days=1)).date().isoformat()
+        except ValueError:
+            pass
     if tool_name == "bill_payment.pay":
         wanted_type = _requested_bill_type(request)
         bills = [bill for item in observations if item["name"] == "bill_payment.list_bills"
@@ -173,6 +190,23 @@ def value_hints(tool_name, request, row, observations, spec=None):
                     matches.append(rule["time"])
         if matches:
             hints["times"] = [matches[-1]]
+    if tool_name == "notes.create" and "chép nguyên" in text and "mới nhất" in text:
+        from datetime import datetime
+        alerts = [alert for result in _all_results(row, observations)
+                  for alert in result.get("alerts", [])
+                  if alert.get("location") and alert["location"].casefold() in text
+                  and isinstance(alert.get("message"), str)]
+        dated = []
+        for alert in alerts:
+            try:
+                dated.append((datetime.fromisoformat(alert["time"]), alert["message"]))
+            except (KeyError, ValueError, TypeError):
+                pass
+        if dated:
+            newest = max(item[0] for item in dated)
+            messages = {message for time, message in dated if time == newest}
+            if len(messages) == 1:
+                hints["content"] = messages.pop()
     properties = ((spec or {}).get("parameters") or {}).get("properties") or {}
     for field, property_spec in properties.items():
         options = property_spec.get("enum") or []
@@ -241,7 +275,7 @@ def literal_grounding_error(tool_name, arguments, spec, request, row, observatio
                     field == "phone_number" and any(spoken_phone_in_text(value, text)
                                                      for text in user_texts)):
                 return field, f"{field}={value} không có trong request, history hoặc tool result."
-    return None, None
+    return reference_error(tool_name, arguments, spec, request, row, observations)
 
 
 def canonicalize_sms_destination(tool_name, request, row, observations, selected, values):

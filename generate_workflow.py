@@ -83,7 +83,7 @@ for x, title, sub in zip(LANES,
 card(70, 270, 175, "Input của planner", (
     "request · context · history · available_tools",
     "executed_calls · tool_observations",
-    "validation_feedback · task_plan"), "input")
+    "feedback · task_plan · execution_status"), "input")
 card(70, 510, 175, "Qwen: planner", (
     "Lần đầu lập đủ goal và điều kiện",
     "Chọn call / ask / revise / done",
@@ -116,12 +116,12 @@ card(650, 1030, 175, "Không có field?", (
 
 card(1230, 270, 200, "Qwen: value selector", (
     "Điền arguments + value_reasons",
-    "Nhận value_hints đã suy chắc chắn",
+    "Nhận hints và reference_candidates",
     "Đúng đối tượng, điều kiện và schema",
     "Thiếu/mơ hồ → issue, không đoán"), "qwen")
 card(1230, 545, 190, "Code: kiểm trước khi gọi", (
-    "Đủ required / x-one-of; ID/email có bằng chứng",
-    "Optional đúng việc; tool đúng hành động",
+    "Đủ required / x-one-of; ID đúng collection",
+    "Nested ID, loại thiết bị, email, ambiguity",
     "env.validate(name, arguments)",
     "Chặn read/write lặp; sai → feedback"), "code")
 card(1230, 810, 145, "env.call(name, arguments)", (
@@ -152,7 +152,7 @@ ax.add_patch(FancyBboxPatch(
     linewidth=2, edgecolor=edge, facecolor=fill))
 ax.text(105, 1321, "Feedback / giới hạn sửa", fontsize=18, weight="bold", color=INK)
 ax.text(105, 1361,
-        "issue + suggested_lookup, ask đã có đáp án, done thiếu goal, value thiếu căn cứ, tool lặp → planner chọn lại.",
+        "issue → lookup đúng nguồn / ask; done → evidence_options; cache theo app; chặn write lặp.",
         fontsize=14.2, color=BODY)
 route([(1730, 640), (1775, 640), (1775, 1335), (1730, 1335)],
       color="#bf7465")

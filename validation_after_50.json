@@ -1,0 +1,9 @@
+{
+  "workflow_sha256": "4e1ae5d53046b8953d6f20dea29fa6cfb1445dfed7133591c9386df3d0598e8e",
+  "unit_tests_passed": 97,
+  "gold_samples": 50,
+  "gold_calls_checked": 121,
+  "gold_calls_blocked": [],
+  "qwen_rerun": false,
+  "note": "Gold labels used for checker regression only, never inference."
+}

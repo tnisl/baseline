@@ -9,6 +9,7 @@ from agent import (
     missing_fields, parse_action, parse_object,
     valid_ask,
 )
+from evidence_rules import read_invalidated
 from common import allowed_specs, dumps, result_facts, result_succeeded
 from pipeline_rules import (
     canonicalize_sms_destination, known_answer_for_ask,
@@ -133,18 +134,24 @@ def available_lookup_for_ask(name, fields, specs, observations):
             and "contacts.search" in specs and "contacts.search" not in called):
         return "contacts.search"
     for field in fields:
-        ref = properties.get(field, {}).get("x-ref")
-        if not isinstance(ref, str) or "." not in ref:
+        prop = properties.get(field, {})
+        explicit = (re.findall(r"[a-z_]+\.[a-z_]+", prop.get("description", ""))
+                    if prop.get("x-ref") else [])
+        if name == "food_delivery.place_order" and field == "items":
+            explicit = ["food_delivery.get_menu"]
+        for tool in explicit:
+            if tool in specs and specs[tool].get("kind") == "read" and tool not in called:
+                return tool
+        ref = prop.get("x-ref", "")
+        if "." not in ref:
             continue
-        app = ref.split(".", 1)[0] + "."
-        options = [tool for tool, spec in specs.items()
-                   if tool.startswith(app) and spec.get("kind") == "read"
-                   and any(marker in tool for marker in (".search", ".list"))
-                   and tool not in called]
+        app, collection = ref.split(".", 1)
+        options = [tool for tool, candidate in specs.items()
+                   if tool.startswith(app + ".") and candidate.get("kind") == "read"
+                   and collection in str(candidate.get("returns", "")) and tool not in called
+                   and not candidate.get("parameters", {}).get("required")]
         if options:
-            options.sort(key=lambda tool: (not any(
-                marker in tool for marker in (".search", ".list")), tool))
-            return options[0]
+            return sorted(options)[0]
     return None
 
 
@@ -316,6 +323,17 @@ class Agent(PromptAgent):
                     stop_reason = "parse_error"
                     break
                 continue
+            if (choice.get("type") == "call" and feedback
+                    and choice.get("name") == feedback.get("tool")
+                    and not feedback.get("suggested_lookup")):
+                blocked = feedback.get("issue") or {}
+                fields = blocked.get("fields", [])
+                if (blocked.get("type") == "ambiguous_target"
+                        or (choice["name"] == "tv.control" and fields == ["volume"])):
+                    event["recovery_override"] = {"requested": choice["name"], "ask": fields}
+                    choice = {"type": "ask", "tool_name": choice["name"], "params": fields,
+                              "tool_reason": blocked.get("reason", "Cần làm rõ đối tượng")}
+                    event["action"] = choice
             if choice["type"] == "revise":
                 if goals is None or plan_revisions >= 2:
                     if reject(event, "planner", "invalid_plan_revision",
@@ -371,7 +389,10 @@ class Agent(PromptAgent):
                     done_error = done_evidence_error(choice, goals, observations)
                     if done_error:
                         if reject(event, "planner", "premature_done",
-                                  extra={"reason": done_error}):
+                                  extra={"reason": done_error, "evidence_options": [
+                                      {"index": i, "name": item["name"], "kind": item.get("kind"),
+                                       "succeeded": result_succeeded(item["result"])}
+                                      for i, item in enumerate(observations)]}):
                             break
                         continue
                 trace.append(event)
@@ -417,6 +438,12 @@ class Agent(PromptAgent):
                 break
 
             name = choice.get("name")
+            if feedback and name == feedback.get("tool") and feedback.get("suggested_lookup") in specs:
+                lookup = feedback["suggested_lookup"]
+                event["recovery_override"] = {"requested": name, "lookup": lookup}
+                choice = {**choice, "name": lookup,
+                          "tool_reason": "Tra dữ liệu còn thiếu cho " + str(name)}
+                name = lookup
             if len(env.get_tool_calls()) >= self.max_tool_calls:
                 stop_reason = "tool_limit"
                 trace.append(event)
@@ -556,10 +583,16 @@ class Agent(PromptAgent):
             field, reason = literal_grounding_error(
                 name, args, spec, transcript, row, observations)
             if field:
-                issue = {"type": "missing_data", "fields": [field], "reason": reason}
+                issue = {"type": "ambiguous_target" if "ambiguous_target" in reason else "missing_data",
+                         "fields": [field], "reason": reason}
                 if reject(event, "value_selection", "ungrounded_value", issue=issue):
                     break
                 continue
+            if name == "bill_payment.pay" and "source" in hints and "source" in args:
+                if args["source"] != hints["source"]:
+                    event["normalized_source"] = {"from": args["source"], "to": hints["source"]}
+                    args["source"] = hints["source"]
+                    action["value_reasons"]["source"] = "So sánh số dư với số tiền của hóa đơn đã xác định."
             field, reason = semantic_value_error(name, args, transcript, hints)
             if field:
                 issue = {"type": "missing_data", "fields": [field], "reason": reason}
@@ -583,8 +616,7 @@ class Agent(PromptAgent):
             if (spec.get("kind") == "read" and any(
                     prior["name"] == name and prior["arguments"] == args
                     and result_succeeded(prior["result"])
-                    and not any(later.get("kind") == "write"
-                                and result_succeeded(later["result"])
+                    and not any(read_invalidated(name, later)
                                 for later in observations[index + 1:])
                     for index, prior in enumerate(observations))):
                 if reject(event, "validation", "read_already_observed",

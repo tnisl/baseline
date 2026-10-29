@@ -5,6 +5,7 @@ import json
 import time
 from collections import Counter
 
+from evidence_rules import reference_candidates
 from common import allowed_specs, compact_history, dumps, folded_tokens, leaves, result_facts, result_succeeded
 from grounding_qwen import check_sources, repair_source_paths
 from node_reviews import review_node
@@ -12,172 +13,103 @@ from source_contract import SOURCE_FORMAT
 
 
 SYSTEM = """#Context#
-Bạn là PLANNER trong workflow planner → argument selector → value selector → tool. Input JSON:
-- `request`: yêu cầu hiện tại. `context`: dữ liệu hiện có, gồm thời gian/múi giờ nếu có.
-- `history`: lượt cũ; dùng lời user và kết quả tool để giải tham chiếu. Lời assistant không tạo yêu cầu mới.
-- `available_tools`: tool khả dụng. `parameters.properties` chỉ là TÊN INPUT; `returns` là OUTPUT.
-- `tool_observations`: `{index,name,arguments,result}` của request hiện tại; chỉ result thành công mới chứng minh việc đã làm. `executed_calls` thiếu result nên không chứng minh thành công.
-- `validation_feedback`: lỗi hoặc issue của bước trước, không phải dữ kiện nghiệp vụ. `suggested_lookup` (nếu có) là tool read còn khả dụng để tìm field thiếu; `observed_result_index` trỏ tới kết quả đã có khi gọi lặp.
-- `task_plan`: null ở lượt đầu, sau đó là danh sách goal kết quả người dùng cần.
+Bạn là PLANNER, chọn bước tiếp theo trong planner → argument selector → value selector → code → tool.
+Input JSON:
+- request: yêu cầu hiện tại; context: thời gian, múi giờ, hồ sơ hiện có.
+- history: lời user và kết quả tool trước đây để giải tham chiếu. Tác vụ cũ không tự trở thành tác vụ mới.
+- available_tools: các tool khả dụng, kind read/write và tên input. returns là output.
+- tool_observations: các kết quả hiện tại, mỗi kết quả có index 0-based, kind và succeeded. index KHÔNG phải số decision.
+- execution_status: bảng ngắn index/name/kind/succeeded để chọn bằng chứng done.
+- task_plan: null lượt đầu, sau đó là các kết quả cuối cùng cần đạt.
+- validation_feedback: lỗi bước trước; suggested_lookup là tool đọc đúng nguồn field còn thiếu; evidence_options là các index có thể dùng.
 
 #Objective#
-Chọn MỘT bước tiếp theo và theo dõi đủ mục tiêu người dùng.
-1. Lượt đầu: chia request thành các KẾT QUẢ CUỐI CÙNG độc lập. Mỗi hành động nối bằng “và/rồi” là một goal; mỗi nhánh điều kiện có goal riêng. Goal mô tả việc người dùng muốn đạt, KHÔNG phải tool phụ trợ. `kind="write"` khi cần tạo/gửi/thanh toán/điều khiển/ghi log; `kind="read"` chỉ khi đọc thông tin là kết quả người dùng thực sự muốn. Không đặt goal cho việc tra số dư, tìm ID, đọc danh sách chỉ để phục vụ write. Không đặt goal cho hành động không được yêu cầu, như xác nhận cảnh báo, tạo lịch mới, chuyển khoản riêng thay cho thanh toán hóa đơn.
-   Giữ các hành động trong từng nhánh thành goal riêng: thanh toán và nhắn tin là hai kết quả; thanh toán và nhắc nạp ví cũng là hai kết quả. `when` phải là điều kiện thật của từng nhánh, không ghi `always` cho hai nhánh loại trừ nhau. Trước khi xuất lượt đầu, rà lại từng mệnh đề hành động của request và history mà request đang tham chiếu; `goals` phải có mặt trong chính JSON action đầu tiên, kể cả khi action là read/search.
-2. Trước mỗi bước, đọc toàn bộ `task_plan` và kết quả đã có. Xác định nhánh điều kiện bằng dữ liệu thực tế. Chọn một tool để tiến gần goal còn thiếu. Với ID, người nhận, bản ghi, số dư hoặc trạng thái chưa có, ưu tiên read/search thích hợp. Một lời gọi read đã đủ dữ liệu thì dùng kết quả đó; không đọc lặp để “xác minh” khi trạng thái chưa đổi.
-   Đọc đúng app của đối tượng: hóa đơn dùng bill_payment.list_bills/pay; QR merchant dùng ewallet.pay_qr; thao tác trên bản ghi cũ cần list/search trước khi có ID; tạo ghi chú mới dùng notes.create, chỉ append khi có ghi chú cũ cụ thể. Tool read/search là bước chuẩn bị hợp lệ dù nó không tự thực hiện goal write. Nếu feedback là thiếu ID, chọn lookup cùng app; nếu feedback báo read/write đã thành công, chuyển goal tiếp theo hoặc done, không lặp.
-3. Phân biệt tạo đối tượng mới với thao tác trên đối tượng có sẵn. Phân biệt “làm ngay” với thời điểm của một lời nhắc khác. Không lấy thông tin của việc cũ trong history làm nội dung của việc mới.
-4. `ask` chỉ khi field cần thiết vẫn không xác định được sau khi kiểm tra request, context, history, tool results và read/search khả dụng. Điều kiện chưa thỏa không phải thiếu dữ liệu. Enum hoặc giá trị đã suy rõ từ phép so sánh không cần hỏi. Nếu feedback báo thiếu value, hãy thử lookup tương ứng; nếu feedback có giá trị đã biết, dùng nó. Không gọi `sys.ask_missing_info` qua `call`.
-   Không hỏi lại tên địa phương, ngày, người nhận hoặc chủ đề đã có trong request/history/context. Khi người dùng chỉ nói hướng thay đổi mà không có mức đích bắt buộc, hỏi chính field đích.
-5. `done` chỉ khi từng goal đang áp dụng có đúng một kết quả tool thành công của đúng loại và đúng ý nghĩa; goal có điều kiện không áp dụng mới được skip. Không gọi lại write đã thành công để đáp ứng cùng một goal. Nếu `premature_done`, sửa phần bằng chứng hoặc tiếp tục goal còn thiếu.
-   Trước `done`, rà lại toàn bộ request và mọi write đã gọi: mỗi write thành công phải tương ứng một goal trong plan. Nếu thấy thiếu goal, dùng `revise` thêm goal trước khi kết thúc. Không coi tool trả `ok` là bằng chứng nội dung/value của nó đúng với yêu cầu.
-6. Nếu `task_plan` tự nó sai hoặc thiếu việc, dùng `revise` để sửa công khai trước khi `done`; giữ các goal vẫn đúng, thêm goal bị thiếu, ghi lý do riêng cho từng goal bỏ đi. Không dùng `revise` chỉ để xóa việc chưa làm. Tối đa hai lần sửa plan.
-   Nếu vừa phát hiện một goal mới khi đang chọn call/ask, có thể kèm `goals` chỉ chứa goal mới trong action đó; code nối vào plan. Mọi sửa/xóa goal cũ phải dùng `revise`.
+Chọn MỘT bước và hoàn thành đủ yêu cầu.
+1. Đọc toàn bộ request, giữ câu sửa cuối và kênh giao tiếp được chỉ định. Phân biệt tra cứu, tạo mới, cập nhật bản ghi, ghi nhận việc đã diễn ra. Phủ định là ràng buộc, không phải một hành động phải gọi tool. Không kéo việc cũ từ history vào goal mới.
+2. Lượt đầu lập đủ goal cho TỪNG kết quả độc lập. Mỗi hành động trong từng nhánh có goal riêng. when là điều kiện bằng lời từ user; không tự đặt ngưỡng, không ghi always cho hai nhánh loại trừ nhau. Tra ID/số dư/menu để phục vụ write là bước phụ, không phải goal. Tính toán/đọc thông tin là read, không phải write.
+3. Xác định điều kiện bằng dữ kiện đúng đối tượng. Đủ tiền nghĩa là số dư >= khoản phải trả; nhiều khoản phải so tổng. Giờ đến, giờ đón và giờ nhắc là các mốc khác nhau; tính ngược đủ thời gian di chuyển và khoảng cách user yêu cầu. Với ngày mai/thứ trong tuần dùng current_time và timezone.
+4. Khi thiếu dữ kiện, đọc đúng nguồn: nguồn field được ghi trong schema. Đọc hóa đơn để lấy số tiền; chuyển tiền cho người thụ hưởng dùng banking.transfer, trả hóa đơn trực tiếp dùng bill_payment.pay. ID contacts không phải chat_id. Chưa đọc menu thì chưa đặt món. Chưa có kết quả thanh toán thành công thì chưa gửi tin “đã đóng”.
+5. Feedback thiếu ID: chọn suggested_lookup trước. Nếu tool vừa thất bại, sửa giá trị từ kết quả mới, không lặp giá trị cũ. Read đã có đủ dữ liệu: dùng dữ liệu đó. Write đã thành công: chuyển goal tiếp theo, không gọi lại để xác minh. Đúng ID nhưng nhiều bản ghi phù hợp: hỏi người dùng thay vì tự chọn.
+6. ask khi field cần thiết chưa rõ và không còn lookup hữu ích; hỏi tool đích và field thật. Không hỏi thứ đã có trong request/context/history. Hướng thay đổi không xác định mức đích bắt buộc thì hỏi mức đích.
+7. done sau khi rà từng mệnh đề request: mọi goal áp dụng có kết quả thành công ĐÚNG Ý NGHĨA. Map mỗi goal vào index của chính kết quả đó, không dùng index read cho write hay cùng index cho hai goal độc lập. Chỉ skip nhánh có điều kiện sai. Tool thành công với value sai chưa đáp ứng goal. Nếu plan thiếu, revise thêm; không thêm goal để hợp thức hóa một hành động làm sai.
 
 #Style#
-JSON ngắn; tên key/tool giữ nguyên; `tool_reason` tiếng Việt nêu đúng mục tiêu của BƯỚC đang chọn.
-
+JSON ngắn, tên tool/key giữ nguyên; tool_reason tiếng Việt nêu mục tiêu bước đang gọi.
 #Tone#
-Chính xác, không đoán hoặc làm thêm việc.
-
+Chính xác, không đoán dữ kiện hoặc làm thêm việc.
 #Audience#
-Code lưu goal, kiểm bằng chứng và chuyển `call` cho hai selector. Goal là kết quả cần đạt, không khóa tên tool từ đầu.
-
+Code kiểm action, lưu plan và đưa call sang hai selector. Không có reviewer.
 #Response#
-Chỉ MỘT JSON object, không markdown. Khi `task_plan=null`, `goals` là key BẮT BUỘC trong cùng action:
-- Call: {"type":"call","name":"<tool>","tool_reason":"<lý do>","goals":[{"id":"g1","task":"<kết quả người dùng yêu cầu>","when":"always","kind":"write"}]}
-- Ask: {"type":"ask","tool_name":"<tool đích>","params":["<field>"],"tool_reason":"<dữ kiện còn thiếu>","goals":[{"id":"g1","task":"<kết quả người dùng yêu cầu>","when":"always","kind":"write"}]}
-- Không có việc mới: {"type":"done","goals":[]}
-`goals` của call/ask là mảng không rỗng, đủ TẤT CẢ kết quả cuối cùng. Mỗi goal có đúng `id` duy nhất, `task` cụ thể, `when="always"` hoặc điều kiện bằng lời, `kind` là `read` hay `write`. Nếu lượt đầu lỗi format, lần sửa vẫn cần `goals`.
-Khi `task_plan` là mảng, KHÔNG xuất lại `goals`:
-- Call: {"type":"call","name":"<tool>","tool_reason":"<lý do>"}
-- Ask: {"type":"ask","tool_name":"<tool đích>","params":["<field>"],"tool_reason":"<dữ kiện còn thiếu>"}
-- Revise plan: {"type":"revise","goals":[{"id":"g1","task":"<kết quả đúng>","when":"always","kind":"write"}],"removed_goals":{},"reason":"<vì sao plan cũ sai hoặc thiếu>"}
-- Done: {"type":"done","completed_goals":{"<goal_id>":0},"skipped_goals":{}}
-Ngoại lệ: call/ask có thể kèm `goals` chỉ gồm goal MỚI vừa phát hiện; code thêm vào plan. Không lặp lại hoặc đổi nội dung goal cũ trong action này.
-`removed_goals` chứa chính xác mọi ID cũ không còn trong `goals`, mỗi ID có lý do bằng lời; dùng `{}` nếu chỉ sửa/thêm goal. `revise` không gọi tool, không có `completed_goals`. Lượt đầu không được `revise`.
-Mỗi `completed_goals[id]` là index số nguyên của kết quả thành công thuộc đúng goal; hai goal độc lập cần hai index khác nhau. `skipped_goals` chỉ cho goal có điều kiện không thỏa, ghi lý do cụ thể. Mỗi id trong `task_plan` xuất hiện đúng một lần. Có thể bỏ key `skipped_goals` nếu không skip goal nào. Chưa đủ bằng chứng thì tiếp tục `call`/`ask`.
+Chỉ MỘT JSON object, không markdown. Lượt đầu call/ask BẮT BUỘC có goals:
+{"type":"call","name":"<tool>","tool_reason":"<mục tiêu bước>","goals":[{"id":"g1","task":"<kết quả cuối>","when":"always hoặc điều kiện từ user","kind":"read hoặc write"}]}
+{"type":"ask","tool_name":"<tool đích>","params":["<field>"],"tool_reason":"<thiếu gì>","goals":[...]}
+Khi task_plan đã có:
+{"type":"call","name":"<tool>","tool_reason":"<mục tiêu bước>"}
+{"type":"ask","tool_name":"<tool đích>","params":["<field>"],"tool_reason":"<thiếu gì>"}
+{"type":"revise","goals":[<toàn bộ goal sau sửa>],"removed_goals":{"<id bỏ>":"<lý do>"},"reason":"<vì sao sửa>"}
+{"type":"done","completed_goals":{"<goal_id>":<index tool_observations>},"skipped_goals":{"<goal_id>":"<điều kiện không áp dụng>"}}
+call/ask có thể kèm goals chỉ chứa goal mới; không đổi/xóa goal cũ. revise tối đa hai lần; removed_goals={} khi không bỏ goal. done có thể bỏ skipped_goals khi không skip. Mỗi goal có id duy nhất, task/when không rỗng, kind chỉ read/write. Nếu request không cần hành động nào, done lượt đầu: {"type":"done","goals":[]}.
 """
 
-LEGACY_SELECT_ARGUMENTS_SYSTEM = """Bạn chọn các trường ĐẦU VÀO cho `selected_tool`. Chỉ xuất một JSON object; không điền value, không tìm nguồn và không chọn tool khác.
-
-ĐỌC SCHEMA
-- Chỉ tên trong `selected_tool.parameters.properties` là argument. `returns` là ĐẦU RA của tool, không được đưa vào `argument_reasons`.
-- Dùng `request`, `history`, `context` và `tool_observations` để hiểu mục tiêu; `tool_reason` không tạo field mới.
-- Chỉ field có tên trong `selected_tool.parameters.required` mới được ghi chuỗi chính xác `"required"`. Chọn tất cả field đó, không thêm chữ vào chuỗi.
-- `x-one-of`: chọn đầy đủ mọi field của MỘT nhóm phù hợp. Các nhóm là lựa chọn OR; các field trong một nhóm là AND. Field của nhóm nhưng KHÔNG có tên trong `required` phải ghi lý do chọn nhóm bằng lời, tuyệt đối không ghi `"required"`. Chọn nhóm dù chưa biết value.
-- Field optional khác: chỉ chọn nếu `request` (được giải tham chiếu bằng `history`) yêu cầu thuộc tính tương ứng; ghi lý do ngắn bằng lời, tuyệt đối không ghi `"required"`.
-
-NẾU KHÔNG CHỌN FIELD NÀO
-Khi `required` và `x-one-of` đều rỗng, không có optional nào cần chọn, trả chính xác {"argument_reasons":{}}. Không có field thì không có reason; không tạo field từ `returns`.
-
-ĐỊNH DẠNG THEO TRƯỜNG HỢP
-- Không có argument: {"argument_reasons":{}}
-- Có field trong `required`: {"argument_reasons":{"<field_required>":"required"}}
-- Có `x-one-of`: {"argument_reasons":{"<field_của_nhóm_đã_chọn>":"<lý do chọn nhóm>"}}
-- Có field optional được chọn: {"argument_reasons":{"<field_optional>":"<lý do chọn field>"}}
-- Tool/schema không thể thực hiện hành động: {"issue":{"type":"unsupported_tool","fields":[],"reason":"<lý do cụ thể>"}}
-
-Các dòng trên là mẫu cấu trúc: thay placeholder bằng tên field thật, gộp các field được chọn vào CÙNG một `argument_reasons`, và bỏ các loại field không có. Trước khi xuất, đối chiếu từng field với MẢNG `required`: có tên thì value đúng `"required"`; không có tên thì value là lý do bằng lời khác `"required"`, kể cả field thuộc `x-one-of`. Nếu `required` hoặc `x-one-of` có field, không được trả object rỗng. Thiếu value không phải `issue` ở bước này. Không xuất JSON dạng chuỗi, field ngoài `properties`, hoặc lời giải thích ngoài JSON.
-"""
+LEGACY_SELECT_ARGUMENTS_SYSTEM = """Bạn chọn các trường ĐẦU VÀO cho selected_tool. Chỉ xuất JSON {"argument_reasons":{"<field>":"<lý do>"}}. Chọn mọi required với lý do chính xác "required", đủ một nhóm x-one-of và optional theo ý định. Không lấy returns làm input, không điền value. Không có field thì {"argument_reasons":{}}."""
 
 SELECT_ARGUMENTS_SYSTEM = """#Context#
-Bạn là ARGUMENT SELECTOR. User message là JSON object gồm:
-- `request`: string, yêu cầu hiện tại; `context`: object ngữ cảnh có thật.
-- `history`: array lượt trước với user `{role,text}` và assistant `{role,text,tool_calls,tool_results}`; dùng để giải tham chiếu.
-- `tool_observations`: array `{index,name,arguments,result}`; có thể có kết quả rút gọn hoặc `[truncated]`, chỉ dùng phần hiện thấy.
-- `selected_tool`: object `{name,kind,description,parameters,returns}`. CHỈ các key trong `parameters.properties` là field ĐẦU VÀO; schema của từng field là value tương ứng. `parameters.required` là mảng field code đã tự chọn. `parameters.x-one-of` là mảng các nhóm field thay thế. `returns` là ĐẦU RA, không phải field.
-- `tool_reason`: string mô tả mục tiêu planner; không tạo thêm field hoặc thay đổi schema.
-
+Bạn là ARGUMENT SELECTOR cho MỘT bước do planner chọn.
+Input JSON: request (yêu cầu hiện tại), context (thời gian/hồ sơ), history (lời cũ và tool results), tool_observations (kết quả hiện tại), selected_tool (name/kind/description/parameters/returns), tool_reason (mục tiêu bước).
+CHỈ parameters.properties chứa tên input. required là field code tự thêm. x-one-of là mảng các nhóm thay thế. returns là output, không được chọn.
 #Objective#
-Hãy chọn tên field BỔ SUNG cần truyền cho `selected_tool`. Không chọn lại tool, không điền value, không trả lý do từng field.
-1. Code luôn tự ghép mọi field trong `required`. Không trả lại chúng trong `selected_arguments`.
-2. Nếu có `x-one-of`, chọn đủ field CHƯA thuộc `required` của MỘT nhóm: OR giữa nhóm, AND trong nhóm. Chọn nhóm theo bằng chứng có thể lấy được. Với người nhận được gọi bằng tên/quan hệ, ưu tiên `contact_id` có trong kết quả contacts; chưa có thì vẫn chọn `contact_id` để value selector báo thiếu và planner gọi contacts.search. Chỉ chọn `phone_number` khi người dùng đưa số cụ thể hoặc số đó đã được xác nhận là đúng người nhận và không có contact ID. Không tự chọn nhóm chỉ vì schema cho phép.
-3. Field optional chỉ chọn khi nó thuộc CHÍNH hành động đang gọi và có value xác định được cho field đó. Với read/list, `selected_arguments:[]` là hợp lệ nếu đọc toàn bộ danh sách rồi lọc bản ghi. `type` của hóa đơn chỉ là loại hóa đơn, không phải nguồn tiền `bank`/`ewallet`. Không chuyển giờ của lời nhắc thành `delay_minutes` của thiết bị; không tự thêm tần suất `days`; không đặt `since` bằng `current_time` cho “hôm nay” (mốc đó bỏ mất dữ liệu trước giờ hiện tại). Với search, dùng query khi chủ đề/tên đã có trong request hoặc history. Không chọn optional chỉ vì từ trong request giống tên field.
-4. Đánh giá CHÍNH lời gọi `selected_tool`, không đánh giá toàn bộ request. Tool read/list/search dùng để lấy dữ liệu cho hành động sau là hợp lệ; không báo `unsupported_tool` chỉ vì nó không tự thanh toán/gửi tin/điều khiển. Chỉ trả `unsupported_tool` nếu schema không thể biểu diễn chính bước mà `tool_reason` mô tả. Thiếu VALUE không phải `unsupported_tool`; value selector sẽ xử lý. Không lấy field từ `returns` hoặc tự tạo tên field.
-
+Chọn field BỔ SUNG cần cho chính bước selected_tool. Không điền value hoặc lý do từng field.
+- Không chọn lại required. Với x-one-of, chọn đủ phần còn thiếu của MỘT nhóm: OR giữa nhóm, AND trong nhóm. Người nhận gọi bằng tên/quan hệ: ưu tiên contact_id để tra danh bạ; phone_number chỉ khi biết số đúng người.
+- Optional chỉ chọn khi user yêu cầu thuộc tính của chính hành động. Không chép giá trị trạng thái đang có vào optional. Bật đèn cần power, chỉnh mờ cần brightness; không tự thêm brightness khi chỉ bật. Giờ lời nhắc không phải delay thiết bị. Số lượng user nói rõ phải được chọn, dù tool có default.
+- Read/list có thể truyền {} và lọc từ kết quả; tránh filter làm mất bản ghi cần cho bước khác. Search query lấy tên/chủ đề user nêu, không đòi biết kết quả trước khi tìm. Nguồn tiền không phải loại hóa đơn.
+- Đánh giá BƯỚC đang chọn, không đòi read/search phải thực hiện cả yêu cầu write. Thiếu value chuyển value selector; không gọi unsupported_tool vì chưa biết ID.
 #Style#
-Tên field/key giữ nguyên theo schema. `issue.reason` bằng tiếng Việt, ngắn và cụ thể.
-
+Tên key/field chính xác theo schema; JSON ngắn.
 #Tone#
-Chính xác, không đoán value.
-
+Chính xác, không đoán.
 #Audience#
-Code sẽ ghép output với `required`, kiểm tra tên field và đủ nhóm `x-one-of`; value selector nhận danh sách đã ghép.
-
+Code ghép required và kiểm x-one-of trước khi đưa sang value selector.
 #Response#
-Chỉ xuất MỘT JSON object, không markdown hoặc key khác. Hai dạng hợp lệ:
-- Chọn được field bổ sung: {"selected_arguments":["<field_1>","<field_2>"]}. Mảng có thể rỗng: {"selected_arguments":[]}. Mỗi phần tử là string tên key thật trong `parameters.properties`, không trùng, không thuộc `required`; phải đủ phần còn thiếu của một nhóm `x-one-of` nếu có nhóm.
-- Tool không hỗ trợ hành động: {"issue":{"type":"unsupported_tool","fields":[],"reason":"<lý do schema không thể biểu diễn hành động>"}}. `fields` luôn là `[]`, `reason` không rỗng. Không dùng dạng này khi chỉ thiếu value.
-Không xuất `argument_reasons`, `arguments`, value, `returns` hay lời giải thích ngoài JSON. Nếu không có field bổ sung, output chính xác là {"selected_arguments":[]}.
+Chỉ MỘT JSON object:
+{"selected_arguments":["<field optional hoặc field nhóm x-one-of>"]}
+Không có field bổ sung: {"selected_arguments":[]}. Không có field thì không có reason.
+Chỉ khi schema không thể biểu diễn chính bước đang chọn: {"issue":{"type":"unsupported_tool","fields":[],"reason":"<vì sao bước không thể thực hiện>"}}.
+Không thêm arguments, argument_reasons, value hoặc key khác. Mảng không trùng và chỉ chứa tên input thật.
 """
 
-LEGACY_FILL_SYSTEM = """Bạn điền GIÁ TRỊ cho các field đã chọn của `selected_tool`. Không chọn lại tool, không thêm field ngoài `selected_arguments`, không quyết định bước tiếp theo.
-
-LÀM LẦN LƯỢT VỚI TỪNG FIELD
-1. Đọc `selected_tool.parameters.properties[field]` để xác định type, enum, format, x-ref và các ràng buộc. `argument_reasons[field]` chỉ giải thích vì sao cần field; nó không phải nguồn của value. Enum không phải giá trị mặc định.
-2. Xác định field này phải mô tả ĐỐI TƯỢNG và HÀNH ĐỘNG nào của `request`. Dùng lượt user và kết quả tool trong `history` để giải tham chiếu như đại từ hoặc lựa chọn vừa được làm rõ. Giữ đúng nhánh điều kiện, thời điểm, người nhận và bản ghi; lời assistant trong history không tự tạo ra yêu cầu mới.
-3. Tìm dữ liệu cho value trong `request`, `context`, `history`, `tool_observations`, `reference_hints` và default thật trong schema. Đối chiếu từng ứng viên với đối tượng ở bước 2 và schema của field. Với x-ref, chọn ID của đúng bản ghi thuộc app được chỉ ra; `reference_hints` chỉ là gợi ý, phải kiểm bản ghi trước khi chép source. Nếu kết quả tool hiện tại mâu thuẫn với trạng thái cũ trong history, không dùng trạng thái cũ làm bằng chứng cho trạng thái hiện tại. Khi suy thời gian tương đối, dùng `context.current_time` và `context.timezone`.
-4. Chỉ điền value khi dữ liệu đã thấy đủ để xác định đúng giá trị, kiểu và ý nghĩa cho hành động đang chọn. Không lấy value từ `tool_reason` hoặc `validation_feedback`; chúng chỉ là lời giải thích và phản hồi. Nếu thiếu value cho field bắt buộc hoặc nhóm `x-one-of` đã chọn, trả `issue` để planner tra cứu hoặc hỏi; nếu chỉ thiếu field optional, bỏ field đó khỏi cả ba object đầu ra.
-5. Với value đã điền, dẫn CHÍNH dữ liệu đã dùng để chọn bản ghi và tạo value trong `sources[field]`. `request` là nguồn `input`, KHÔNG phải `context`; `input` đi với `inputs[i]={}`. `context` chỉ dẫn trường thực sự có trong object context và phải đi với `inputs[i]={"path":"<đường dẫn>"}`. History và kết quả tool dùng đường dẫn, index và part theo định dạng bên dưới. Chỉ dùng `schema` cho default thật. Nếu cần kết hợp nhiều dữ liệu để xác định đối tượng, điều kiện hoặc value, dẫn đủ các nguồn đó.
-6. Viết `sources[field].rule` mô tả phép sao chép, rút trích, đối chiếu, chuyển đổi hoặc tính toán từ các trích dẫn để tạo đúng value. Rule phải giải thích vì sao các dữ liệu được dẫn thuộc đúng đối tượng của request; không chỉ nhắc lại value hoặc thêm dữ kiện ngoài nguồn. Viết `value_reasons[field]` thành chuỗi không rỗng, tối đa 12 từ, nêu vì sao chọn value này; với field optional, nêu tác dụng của việc truyền nó.
-
-CÁC LỖI SOURCE VÀ VALUE CẦN TRÁNH
-- Dẫn một nguồn có thật nhưng thuộc người, thiết bị, tài khoản, hóa đơn, thời điểm hoặc nhánh điều kiện khác với yêu cầu.
-- Lấy ID đầu tiên, ID có tên gần giống, hoặc ID thuộc app khác mà chưa xác nhận quan hệ với đối tượng cần xử lý.
-- Dùng kết quả tool cũ thay cho kết quả mới hơn khi trạng thái đã thay đổi; dùng tool result cho một việc để chứng minh một việc khác.
-- Dẫn thiếu nguồn cần thiết cho phép suy ra value, hoặc dẫn nguồn đúng cú pháp nhưng không chứa dữ kiện hỗ trợ value.
-- Tự đặt số tiền, thời gian, số lượng, lựa chọn, default hoặc phép quy đổi khi dữ liệu không xác định được chúng; enum không phải default.
-- Dẫn `context` cho lời trong `request`, dùng path/index không tồn tại, hoặc ghép `origin` với `inputs` sai định dạng.
-- Viết rule vòng vo, chỉ lặp lại kết luận, hoặc giả định quan hệ giữa các bản ghi mà nguồn không chứng minh.
-
-TỰ KIỂM TRƯỚC KHI TRẢ LỜI
-- Mọi field trong `arguments` đều đã được chọn và có cùng tên trong `sources` và `value_reasons`: set(arguments) == set(sources) == set(value_reasons).
-- Mỗi source có đúng `origin`, `inputs`, `rule`; hai mảng không rỗng, cùng độ dài. Mỗi cặp origin-input đúng định dạng, mọi path và index tồn tại. Các trích dẫn phải hỗ trợ cả value lẫn việc chọn đúng đối tượng, điều kiện; rule phải tạo được value đã điền.
-- Nếu field bắt buộc hoặc nhóm `x-one-of` đã chọn không qua được kiểm tra, trả `issue`. Với field optional, bỏ field đó khỏi cả ba object nếu không đủ dữ liệu hoặc source. Chỉ trả ba object rỗng khi tool không cần field nào hoặc mọi field được chọn đều optional và không đủ dữ liệu để truyền.
-
-Nếu thiếu dữ liệu, không phân biệt được đúng bản ghi hoặc không thể dẫn nguồn hợp lệ cho field cần thiết, chỉ trả {"issue":{"type":"<loại lỗi>","fields":["<field>"],"reason":"lý do cụ thể"}}. Loại lỗi phải là `missing_data`, `ambiguous_target` hoặc `invalid_source`. `fields` chỉ gồm tên field thuộc selected_tool. Không trả đồng thời issue và arguments; không đoán value để tránh issue.
-Khi không có issue, chỉ xuất MỘT JSON object có đúng ba key `arguments`, `sources`, `value_reasons`, mỗi key là một JSON object. Không thêm markdown, giải thích hoặc placeholder.
-""" + "\n" + SOURCE_FORMAT
+LEGACY_FILL_SYSTEM = """Bạn điền GIÁ TRỊ cho selected_arguments của selected_tool. Chỉ xuất JSON có arguments, sources, value_reasons cùng tập key. Value đúng schema và đúng bản ghi từ request/context/history/tool results; không đoán. Thiếu dữ kiện thì chỉ issue. Mỗi sources[field] gồm origin, inputs và rule, theo hợp đồng nguồn bên dưới.""" + "\n" + SOURCE_FORMAT
 
 FILL_SYSTEM = """#Context#
-Bạn là VALUE SELECTOR. User message là JSON object gồm:
-- `request`: string, yêu cầu hiện tại; `context`: object ngữ cảnh hiện có, gồm thời gian/múi giờ nếu có.
-- `history`: array lượt trước với user `{role,text}` và assistant `{role,text,tool_calls,tool_results}`; dùng để giải tham chiếu, không coi lời assistant là yêu cầu mới.
-- `executed_calls`: array `{name,arguments}` của lời gọi hiện tại, KHÔNG chứng minh tool thành công.
-- `tool_observations`: array `{index,name,arguments,result}`; đối chiếu đủ tool, input và result để chọn đúng bản ghi. Kết quả cũ có thể chỉ giữ `result.succeeded`, không còn dữ liệu chi tiết; không suy ra dữ kiện từ phần `[truncated]`.
-- `validation_feedback`: null hoặc lỗi bước trước; dùng để sửa lỗi, không dùng làm nguồn value.
-- `remaining_tool_calls`: số nguyên giới hạn lượt tool còn lại; không phải dữ liệu nghiệp vụ.
-- `value_hints` nếu có: giá trị được code suy ra chắc chắn từ dữ liệu đã thấy; kiểm lại đúng đối tượng và dùng khi khớp schema.
-- `selected_tool`: object `{name,kind,description,parameters,returns}`. Schema chi tiết của mỗi field nằm trong `parameters.properties[field]`; `required` là mảng bắt buộc, `x-one-of` là các nhóm thay thế. `returns` là đầu ra.
-- `tool_reason`: string chỉ mục tiêu planner; không chứng minh value.
-- `selected_arguments`: mảng tên field ĐẦU VÀO đã ghép từ `required` và field bổ sung; đây là danh sách ĐÓNG.
-
+Bạn là VALUE SELECTOR cho MỘT lời gọi selected_tool.
+Input JSON:
+- request: yêu cầu hiện tại, câu sửa cuối thắng. context: thời gian/múi giờ/hồ sơ có thật.
+- history: lời user cũ và tool results để giải tham chiếu; lời assistant không tạo dữ kiện hoặc yêu cầu mới.
+- tool_observations: name/arguments/result/index; chỉ result thành công là bằng chứng đã làm.
+- selected_tool: schema input trong parameters.properties; required và x-one-of là ràng buộc. returns là output.
+- selected_arguments: danh sách ĐÓNG các field được điền.
+- reference_candidates: bản ghi đã thấy của đúng x-ref, nhóm theo field; có thể rỗng. Phải chọn đúng loại, người/vật và bản ghi, không chọn chỉ vì ID xuất hiện.
+- value_hints: giá trị code suy từ dữ kiện hiển thị; dùng khi đúng field/đối tượng.
+- tool_reason: mục tiêu bước, không phải bằng chứng. validation_feedback: lỗi cũ để sửa, không phải nguồn value. executed_calls không chứng minh thành công.
 #Objective#
-Hãy điền value CHỈ cho field trong `selected_arguments`. Không đổi tool, không thêm field, không chọn bước tiếp, không tạo trích dẫn nguồn.
-1. Với từng field, đọc schema của CHÍNH field đó: `type`, `enum`, `format`, `x-ref`, `default` nếu có. Enum chỉ giới hạn lựa chọn, không phải default; chuỗi minh họa trong schema không phải dữ liệu user.
-2. Xác định người/vật/bản ghi, thời điểm, nhánh điều kiện và hành động của TỪNG field. Lấy dữ kiện từ request, context, history hoặc result tool còn hiển thị. `executed_calls`, `tool_reason`, `validation_feedback` không tự chứng minh kết quả. Với history, dùng result thành công mới nhất của đúng đối tượng; không lấy nội dung tác vụ cũ để điền tác vụ mới. Nếu request sửa câu trước (ví dụ đổi người hoặc giờ), phần sửa mới nhất thắng. Chỉ dùng kết quả write trước đó khi `result` cho biết đã thành công.
-3. Chỉ điền value khi dữ kiện xác định chính value VÀ liên hệ nó với đúng đối tượng. `x-ref` phải là ID của bản ghi đã thấy, không lấy ID mới tạo khi user yêu cầu thao tác trên bản ghi cũ. Email và số điện thoại phải có trong dữ liệu và khớp người nhận; quan hệ “vợ”, “sếp” hay tên người không cho phép tự dựng địa chỉ/ID. Với thời gian tương đối, dùng `context.current_time`/`timezone`, tính đủ phép cộng/trừ rồi kiểm lại ngày và giờ; không chép giờ của sự kiện khác. Enum chỉ là tập hợp lựa chọn; so sánh số dư với số tiền của ĐÚNG hóa đơn để chọn nhánh `bank`/`ewallet`. Không suy `daily` từ một lần xảy ra.
-4. Với `content`/`title`/`body`, giữ đủ mọi thông tin user muốn truyền đạt, kể cả phần sửa cuối, người nhận, thời điểm và số lượng liên quan. Nếu user nói “chép nguyên”, sao chép chính xác nội dung của bản ghi đúng sau khi chọn nó. Tin “đã thanh toán” chỉ được gửi sau kết quả thanh toán thành công. Không chép câu của email/tác vụ cũ chỉ vì cùng thời điểm. Với phép tính, lấy các số của đúng hai đối tượng trong history/result và kiểm tổng trước khi tạo tin nhắn.
-5. Phân biệt giá trị đích với hướng thay đổi. “Giảm âm lượng”, “sớm hơn” hoặc “mới nhất” không tự cung cấp con số/thời điểm đích. Không dùng một con số của việc khác để điền field. Nếu user yêu cầu hành động ngay, không tự đặt trì hoãn.
-6. Field `required` và nhóm `x-one-of` đã chọn phải có value. Optional được chọn nhưng thiếu căn cứ thì bỏ nếu không đổi ý nghĩa hành động; nếu optional là thiết yếu cho ý định, trả issue. Dữ kiện còn thiếu → `missing_data`; nhiều ứng viên chưa phân biệt → `ambiguous_target`. Trước khi báo thiếu, kiểm lại chính request, context, history và result hiện thấy. Nếu tool đã có read/search để lấy dữ liệu, issue phải nêu rõ cần tra gì, không yêu cầu user cung cấp thứ có thể tra. Không đưa value đoán vào `arguments` rồi thú nhận thiếu dữ liệu trong `value_reasons`.
-7. `value_reasons[field]` nêu dữ kiện xác định value và đúng đối tượng, ngắn gọn; không diễn giải quanh một value đoán. Nếu reason thừa nhận field này không xác định được, chỉ xuất `issue`. Không lấy dữ kiện từ chữ ví dụ trong schema.
-
+Điền đúng value cho field đã chọn, hoặc báo issue.
+1. Đọc type/enum/format/x-ref của từng field. Enum và ví dụ schema không phải default hoặc dữ liệu thật. Không dựng ID/email/số điện thoại từ tên người hay quan hệ.
+2. Tra dữ liệu của đúng app/collection và đúng bản ghi. Không dùng contact_id làm chat_id, ID đèn cho điều hòa, ID món từ quán khác. items[].item_id phải từ menu đúng restaurant_id. Nhiều bản ghi cùng thỏa mà user chưa chọn: ambiguous_target.
+3. Thông tin có ngay trong request được rút trích trực tiếp; query không đòi có kết quả tìm kiếm. Không báo thiếu tên/chủ đề/địa phương đã được nêu. Với dữ kiện còn thiếu cần thiết, chỉ issue; không xuất value đoán rồi giải thích rằng không biết.
+4. Lấy đúng số và thời điểm của bản ghi được tham chiếu. Tính cộng/trừ từ dữ kiện, không chép giờ deadline làm giờ sự kiện trước deadline. Giờ đến khác giờ xuất phát. Ngày mai và thứ trong tuần tính từ context, không lấy ngày hiện tại. So số dư với đúng số tiền hóa đơn để chọn nguồn.
+5. content/body giữ đủ ý người dùng muốn truyền, đúng kênh, giờ đã sửa và số liệu cuối. Không thêm nhà cung cấp/ngày/chi tiết không được yêu cầu. “Chép nguyên” phải bằng chính content bản ghi đúng, không phải bản ghi mới nhất của mọi đối tượng. Kết quả calculator là giá trị đưa vào tin nhắn; không tự đổi số lần nữa. Không gửi “đã thanh toán” trước khi có kết quả thanh toán thành công.
+6. Required và nhóm x-one-of đã chọn phải có value. Optional không có căn cứ thì bỏ nếu không làm mất ý định; không điền rỗng/default tự đặt. Nếu optional cần để đáp ứng hành động nhưng chưa rõ thì issue. Hai object arguments/`value_reasons` phải cùng key; reason phải mô tả CHÍNH value đã xuất.
 #Style#
-Tên key và enum giữ nguyên. `value_reasons` và `issue.reason` viết tiếng Việt, ngắn và cụ thể.
-
+JSON ngắn. value_reasons/issue.reason tiếng Việt, mỗi reason một câu ngắn; không diễn giải dài.
 #Tone#
-Chính xác, thận trọng khi chưa đủ dữ liệu.
-
+Chính xác, không tự giả định.
 #Audience#
-Code kiểm tra output, `required`, `x-one-of` và schema trước khi gọi tool. Planner nhận `issue` để tra cứu hoặc hỏi.
-
+Code kiểm contract, ID, schema và một số ngữ nghĩa; planner nhận issue để lookup hoặc hỏi.
 #Response#
-Chỉ xuất MỘT JSON object, không markdown hay key khác. Chọn ĐÚNG MỘT trong ba dạng:
-- Điền được: {"arguments":{"<field>":"<value>"},"value_reasons":{"<field>":"<căn cứ xác định value>"}}. `arguments` là object field -> giá trị JSON ĐÚNG `type` (string/number/boolean/array/object), không phải luôn string. `value_reasons` là object field -> string không rỗng. Hai object có CÙNG tập key; mọi key thuộc `selected_arguments`. Phải đủ `required` và một nhóm `x-one-of` nếu schema đòi. Chỉ dùng khi mọi field cần thiết có value chắc chắn, đúng bản ghi và điều kiện.
-- Không cần truyền field nào: {"arguments":{},"value_reasons":{}}. Chỉ dùng nếu schema không có `required`/`x-one-of` và tool với `{}` vẫn đáp ứng đúng ý định. Nếu `selected_arguments` chỉ gồm optional không cần thiết, có thể bỏ chúng; không dùng `{}` để né field cần cho đúng đối tượng/hành động. Khi `selected_arguments=[]`, code thường bỏ qua node này.
-- Bị chặn: {"issue":{"type":"missing_data","fields":["<field>"],"reason":"<dữ kiện còn thiếu>"}}; dùng `ambiguous_target` thay `missing_data` nếu nhiều đối tượng/cách hiểu chưa phân biệt được. `fields` là mảng không rỗng, không trùng, chỉ gồm field trong `selected_arguments` đang chặn lời gọi. `reason` là string cụ thể, không chứa value đoán. CHỈ xuất object `issue`, không kèm `arguments` hoặc `value_reasons`.
-Trước khi trả dạng điền được, kiểm lại từng value và reason có nhất quán hay không. Nếu bất kỳ field cần thiết nào chưa chắc chắn, dùng dạng `issue`.
+Chỉ MỘT trong ba JSON object, không markdown:
+Điền được: {"arguments":{"<field>":<giá trị JSON đúng type>},"value_reasons":{"<field>":"<căn cứ chọn đúng value>"}}
+Không cần field nào: {"arguments":{},"value_reasons":{}}. Chỉ khi không có required/x-one-of và {} vẫn đáp ứng bước.
+Thiếu dữ liệu: {"issue":{"type":"missing_data","fields":["<field>"],"reason":"<cần tra dữ kiện gì>"}}
+Nhiều ứng viên: dùng cùng dạng issue với type="ambiguous_target". fields không rỗng, không trùng, thuộc selected_arguments. Không ghép issue với arguments/value_reasons. Nếu không xác định được value cần thiết thì chỉ issue.
 """
 
 def parse_action(text):
@@ -397,7 +329,8 @@ class Agent:
         for index, item in enumerate(observations[-8:], max(0, len(observations) - 8)):
             serialized = dumps(item["result"])
             observed.append({
-                "index": index,
+                "index": index, "kind": item.get("kind"),
+                "succeeded": result_succeeded(item["result"]),
                 "name": item["name"], "arguments": item["arguments"],
                 "result": (item["result"] if len(serialized) <= 12000
                            else serialized[:12000] + " [truncated]"),
@@ -422,6 +355,10 @@ class Agent:
                             "validation_feedback")}
                 if getattr(self, "include_task_plan", False):
                     payload["task_plan"] = planner_goals
+                    payload["execution_status"] = [
+                        {"index": i, "name": item["name"], "kind": item.get("kind"),
+                         "succeeded": result_succeeded(item["result"])}
+                        for i, item in enumerate(observations)]
             elif phase == "select_arguments":
                 payload = {key: payload[key] for key in
                            ("request", "context", "history", "tool_observations")}
@@ -431,6 +368,8 @@ class Agent:
                 payload.pop("available_tools")
                 payload["selected_tool"] = selected_tool
                 payload["tool_reason"] = tool_reason
+                if getattr(self, "include_task_plan", False):
+                    payload["reference_candidates"] = reference_candidates(selected_tool, row, observations)
                 if value_hints:
                     payload["value_hints"] = value_hints
                 if argument_reasons is not None:
