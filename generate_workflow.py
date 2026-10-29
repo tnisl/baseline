@@ -87,7 +87,7 @@ card(70, 270, 175, "Input của planner", (
 card(70, 510, 175, "Qwen: planner", (
     "Lần đầu lập đủ goal và điều kiện",
     "Chọn call / ask / revise / done",
-    "Bổ sung goal mới khi phát hiện thiếu"), "qwen")
+    "Thêm goal không tốn quota sửa plan"), "qwen")
 card(70, 755, 175, "Nhánh action", (
     "call → chọn một tool khả dụng",
     "ask → tra lookup và dữ kiện đã biết",
@@ -116,12 +116,12 @@ card(650, 1030, 175, "Không có field?", (
 
 card(1230, 270, 200, "Qwen: value selector", (
     "Điền arguments + value_reasons",
-    "Nhận hints và reference_candidates",
+    "Hints tham khảo / trusted + candidates",
     "Đúng đối tượng, điều kiện và schema",
     "Thiếu/mơ hồ → issue, không đoán"), "qwen")
 card(1230, 545, 190, "Code: kiểm trước khi gọi", (
     "Đủ required / x-one-of; ID đúng collection",
-    "Nested ID, loại thiết bị, email, ambiguity",
+    "Nested ID, ambiguity và write trong history",
     "env.validate(name, arguments)",
     "Chặn read/write lặp; sai → feedback"), "code")
 card(1230, 810, 145, "env.call(name, arguments)", (
@@ -152,7 +152,7 @@ ax.add_patch(FancyBboxPatch(
     linewidth=2, edgecolor=edge, facecolor=fill))
 ax.text(105, 1321, "Feedback / giới hạn sửa", fontsize=18, weight="bold", color=INK)
 ax.text(105, 1361,
-        "issue → lookup đúng nguồn / ask; done → evidence_options; cache theo app; chặn write lặp.",
+        "Goal thêm không tốn quota; hint chỉ ép khi trusted; ambiguity → hỏi; history đã xong → không write lặp.",
         fontsize=14.2, color=BODY)
 route([(1730, 640), (1775, 640), (1775, 1335), (1730, 1335)],
       color="#bf7465")

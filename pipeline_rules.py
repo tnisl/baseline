@@ -112,7 +112,7 @@ def value_hints(tool_name, request, row, observations, spec=None):
     """Only facts with an unambiguous deterministic derivation are hinted."""
     hints = {}
     text = request.casefold()
-    if tool_name == "weather.get_forecast" and re.search(r"\bmai\b", text):
+    if tool_name == "weather.get_forecast" and re.search(r"(?i:\b(?:ngày|sáng|tối|chiều|trưa)\s+mai\b)|(?i:^\s*mai\b)", request):
         from datetime import datetime, timedelta
         try:
             now = datetime.fromisoformat(row.get("context", {}).get("current_time", ""))
@@ -143,11 +143,16 @@ def value_hints(tool_name, request, row, observations, spec=None):
         elif "vàng nhẫn" in text:
             hints["type"] = "ring"
     if tool_name == "lottery.check_ticket":
-        province = re.search(
-            r"(?i:vé(?: số)?|đài)\s+([A-ZÀ-ỸĐ][\w-]*(?:\s+[A-ZÀ-ỸĐ][\w-]*){0,2})",
-            request)
+        # Only a known geographic name explicitly linked to the ticket is
+        # extracted. Capitalization alone cannot distinguish a person/place.
+        provinces = ("An Giang|Bạc Liêu|Bến Tre|Bình Dương|Bình Phước|Bình Thuận|Cà Mau|Cần Thơ|"
+                     "Đồng Nai|Đồng Tháp|Hậu Giang|Kiên Giang|Long An|Sóc Trăng|Tây Ninh|Tiền Giang|"
+                     "Trà Vinh|Vĩnh Long|TP.HCM|Đà Nẵng|Huế|Khánh Hòa|Quảng Nam|Quảng Ngãi|"
+                     "Bình Định|Phú Yên|Ninh Thuận|Đắk Lắk|Đắk Nông|Gia Lai|Kon Tum|Lâm Đồng")
+        province = re.search(r"(?i:vé(?: số)?|đài|tỉnh)\s+(" + provinces + r")(?!\w)", request, re.I)
         if province:
-            hints["province"] = province.group(1)
+            hints["province"] = next(name for name in provinces.split("|")
+                                     if name.casefold() == province.group(1).casefold())
         user_turns = [turn.get("audio_text", "") for turn in row.get("history") or []
                       if turn.get("role") == "user"]
         if any(word in (request + " " + (user_turns[-1] if user_turns else "")).casefold()
@@ -218,8 +223,25 @@ def value_hints(tool_name, request, row, observations, spec=None):
     return hints
 
 
+def trusted_value_hints(tool_name, hints):
+    """Only bounded literal/arithmetical derivations can constrain a model value.
+
+    Search topics and approximate semantic matches remain advisory. This list
+    explicitly prevents future heuristic hints from becoming hard constraints.
+    """
+    fields = {
+        "bill_payment.pay": {"bill_id", "source"},
+        "weather.get_forecast": {"date"},
+        "lottery.check_ticket": {"province", "date", "number"},
+        "gold_price.get_price": {"type"},
+        "notes.create": {"content"},
+        "sms.send": {"contact_id", "phone_number"},
+    }.get(tool_name, set())
+    return {field: value for field, value in hints.items() if field in fields}
+
+
 def known_answer_for_ask(tool_name, fields, request, row, observations, spec=None):
-    hints = value_hints(tool_name, request, row, observations, spec)
+    hints = trusted_value_hints(tool_name, value_hints(tool_name, request, row, observations, spec))
     return {field: hints[field] for field in fields if field in hints}
 
 

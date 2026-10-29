@@ -1,0 +1,9 @@
+{
+  "workflow_sha256": "a0774d1a985b093119384defc487be3785aad881f2fea8ea737b53105240992e",
+  "unit_tests_passed": 106,
+  "gold_samples": 100,
+  "gold_calls_checked": 230,
+  "gold_calls_blocked": [],
+  "qwen_rerun": false,
+  "note": "Labels used for regression only, never inference."
+}

@@ -20,7 +20,7 @@ Input JSON:
 - available_tools: các tool khả dụng, kind read/write và tên input. returns là output.
 - tool_observations: các kết quả hiện tại, mỗi kết quả có index 0-based, kind và succeeded. index KHÔNG phải số decision.
 - execution_status: bảng ngắn index/name/kind/succeeded để chọn bằng chứng done.
-- task_plan: null lượt đầu, sau đó là các kết quả cuối cùng cần đạt.
+- task_plan: null lượt đầu, sau đó là các kết quả cuối cùng cần đạt. call/ask chỉ thêm goal mới; nếu vô tình viết lại ID cũ, code giữ goal cũ và ghi cảnh báo, vẫn kiểm call. Không dùng lookup làm goal.
 - validation_feedback: lỗi bước trước; suggested_lookup là tool đọc đúng nguồn field còn thiếu; evidence_options là các index có thể dùng.
 
 #Objective#
@@ -29,7 +29,7 @@ Chọn MỘT bước và hoàn thành đủ yêu cầu.
 2. Lượt đầu lập đủ goal cho TỪNG kết quả độc lập. Mỗi hành động trong từng nhánh có goal riêng. when là điều kiện bằng lời từ user; không tự đặt ngưỡng, không ghi always cho hai nhánh loại trừ nhau. Tra ID/số dư/menu để phục vụ write là bước phụ, không phải goal. Tính toán/đọc thông tin là read, không phải write.
 3. Xác định điều kiện bằng dữ kiện đúng đối tượng. Đủ tiền nghĩa là số dư >= khoản phải trả; nhiều khoản phải so tổng. Giờ đến, giờ đón và giờ nhắc là các mốc khác nhau; tính ngược đủ thời gian di chuyển và khoảng cách user yêu cầu. Với ngày mai/thứ trong tuần dùng current_time và timezone.
 4. Khi thiếu dữ kiện, đọc đúng nguồn: nguồn field được ghi trong schema. Đọc hóa đơn để lấy số tiền; chuyển tiền cho người thụ hưởng dùng banking.transfer, trả hóa đơn trực tiếp dùng bill_payment.pay. ID contacts không phải chat_id. Chưa đọc menu thì chưa đặt món. Chưa có kết quả thanh toán thành công thì chưa gửi tin “đã đóng”.
-5. Feedback thiếu ID: chọn suggested_lookup trước. Nếu tool vừa thất bại, sửa giá trị từ kết quả mới, không lặp giá trị cũ. Read đã có đủ dữ liệu: dùng dữ liệu đó. Write đã thành công: chuyển goal tiếp theo, không gọi lại để xác minh. Đúng ID nhưng nhiều bản ghi phù hợp: hỏi người dùng thay vì tự chọn.
+5. Feedback thiếu ID: chọn suggested_lookup trước. Nếu tool vừa thất bại, sửa giá trị từ kết quả mới, không lặp giá trị cũ. Read đã có đủ dữ liệu: dùng dữ liệu đó. Write đã thành công: chuyển goal tiếp theo, không gọi lại để xác minh. Với “chưa làm thì làm”, kiểm kết quả thành công trong history trước; đã làm thì không lặp. Bằng chứng history được đánh dấu origin=history, không phải tool vừa chạy. Đúng ID nhưng nhiều bản ghi phù hợp: hỏi người dùng thay vì tự chọn. Có hai người cùng tên không cho phép tự ưu tiên bạn/đồng nghiệp; user chọn một mối không được gửi cho mọi địa chỉ.
 6. ask khi field cần thiết chưa rõ và không còn lookup hữu ích; hỏi tool đích và field thật. Không hỏi thứ đã có trong request/context/history. Hướng thay đổi không xác định mức đích bắt buộc thì hỏi mức đích.
 7. done sau khi rà từng mệnh đề request: mọi goal áp dụng có kết quả thành công ĐÚNG Ý NGHĨA. Map mỗi goal vào index của chính kết quả đó, không dùng index read cho write hay cùng index cho hai goal độc lập. Chỉ skip nhánh có điều kiện sai. Tool thành công với value sai chưa đáp ứng goal. Nếu plan thiếu, revise thêm; không thêm goal để hợp thức hóa một hành động làm sai.
 
@@ -48,7 +48,7 @@ Khi task_plan đã có:
 {"type":"ask","tool_name":"<tool đích>","params":["<field>"],"tool_reason":"<thiếu gì>"}
 {"type":"revise","goals":[<toàn bộ goal sau sửa>],"removed_goals":{"<id bỏ>":"<lý do>"},"reason":"<vì sao sửa>"}
 {"type":"done","completed_goals":{"<goal_id>":<index tool_observations>},"skipped_goals":{"<goal_id>":"<điều kiện không áp dụng>"}}
-call/ask có thể kèm goals chỉ chứa goal mới; không đổi/xóa goal cũ. revise tối đa hai lần; removed_goals={} khi không bỏ goal. done có thể bỏ skipped_goals khi không skip. Mỗi goal có id duy nhất, task/when không rỗng, kind chỉ read/write. Nếu request không cần hành động nào, done lượt đầu: {"type":"done","goals":[]}.
+call/ask có thể kèm goals chỉ chứa goal mới; không đổi/xóa goal cũ. Thêm goal mới không tính vào giới hạn sửa plan. Sửa/xóa goal bằng revise tối đa hai lần; removed_goals={} khi không bỏ goal. done có thể bỏ skipped_goals khi không skip. Mỗi goal có id duy nhất, task/when không rỗng, kind chỉ read/write. Nếu request không cần hành động nào, done lượt đầu: {"type":"done","goals":[]}.
 """
 
 LEGACY_SELECT_ARGUMENTS_SYSTEM = """Bạn chọn các trường ĐẦU VÀO cho selected_tool. Chỉ xuất JSON {"argument_reasons":{"<field>":"<lý do>"}}. Chọn mọi required với lý do chính xác "required", đủ một nhóm x-one-of và optional theo ý định. Không lấy returns làm input, không điền value. Không có field thì {"argument_reasons":{}}."""
@@ -88,7 +88,7 @@ Input JSON:
 - selected_tool: schema input trong parameters.properties; required và x-one-of là ràng buộc. returns là output.
 - selected_arguments: danh sách ĐÓNG các field được điền.
 - reference_candidates: bản ghi đã thấy của đúng x-ref, nhóm theo field; có thể rỗng. Phải chọn đúng loại, người/vật và bản ghi, không chọn chỉ vì ID xuất hiện.
-- value_hints: giá trị code suy từ dữ kiện hiển thị; dùng khi đúng field/đối tượng.
+- value_hints: gợi ý từ dữ kiện hiển thị, phải kiểm lại quan hệ và tính duy nhất. Chỉ trusted_value_hints mới được code dùng làm ràng buộc; không coi mọi hint là đáp án.
 - tool_reason: mục tiêu bước, không phải bằng chứng. validation_feedback: lỗi cũ để sửa, không phải nguồn value. executed_calls không chứng minh thành công.
 #Objective#
 Điền đúng value cho field đã chọn, hoặc báo issue.
@@ -329,7 +329,7 @@ class Agent:
         for index, item in enumerate(observations[-8:], max(0, len(observations) - 8)):
             serialized = dumps(item["result"])
             observed.append({
-                "index": index, "kind": item.get("kind"),
+                "index": index, "kind": item.get("kind"), "origin": item.get("origin", "current"),
                 "succeeded": result_succeeded(item["result"]),
                 "name": item["name"], "arguments": item["arguments"],
                 "result": (item["result"] if len(serialized) <= 12000
@@ -342,11 +342,11 @@ class Agent:
                 "history": history, "available_tools": specs,
                 "executed_calls": [
                     {"name": item["name"], "arguments": item["arguments"]}
-                    for item in observations
+                    for item in observations if item.get("origin") != "history"
                 ],
                 "tool_observations": observed,
                 "validation_feedback": feedback,
-                "remaining_tool_calls": self.max_tool_calls - len(observations),
+                "remaining_tool_calls": self.max_tool_calls - sum(item.get("origin") != "history" for item in observations),
             }
             if phase == "select":
                 payload = {key: payload[key] for key in
@@ -372,6 +372,9 @@ class Agent:
                     payload["reference_candidates"] = reference_candidates(selected_tool, row, observations)
                 if value_hints:
                     payload["value_hints"] = value_hints
+                    if getattr(self, "include_task_plan", False):
+                        from pipeline_rules import trusted_value_hints
+                        payload["trusted_value_hints"] = trusted_value_hints(selected_tool["name"], value_hints)
                 if argument_reasons is not None:
                     payload["argument_reasons"] = argument_reasons
                 payload["selected_arguments"] = (

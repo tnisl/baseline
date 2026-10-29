@@ -16,6 +16,18 @@ Planner output lượt đầu phải có `goals` trong cùng action. Các lượ
 
 **Giới hạn:** code không thể tự chứng minh planner đã liệt kê đủ mọi goal hay kết quả tool có đúng *ý nghĩa* goal chỉ từ tên và `kind`. Một goal chưa từng được planner nhắc đến vẫn có thể bị bỏ sót; điều kiện skip hoặc lý do xóa goal khi `revise` cũng do planner diễn giải. Literal grounding chứng minh ID/email/số đã xuất hiện, chưa chứng minh đầy đủ quan hệ đúng người trong mọi trường hợp; phép tính, diễn đạt tin nhắn và thời gian suy luận cũng chưa được kiểm ngữ nghĩa tổng quát. Read rộng khi optional filter thiếu value có thể tăng kích thước tool result. Không có Qwen reviewer; `unverified_arguments` vẫn là số field chưa được xác minh ngữ nghĩa toàn diện. Legacy reviewer trong `agent.py`/`node_reviews.py` không nằm trong pipeline active.
 
+## Sửa sau batch seed 1121
+
+Giữ nguyên planner → argument selector → value selector → checker → tool. Các thay đổi xử lý ba nhóm lỗi trong `report_v2_newseed.zip`:
+
+1. **Contract goal:** inline `call/ask.goals` chỉ thêm goal mới; không dùng quota sửa/xóa. Nếu model viết lại ID cũ, code giữ goal canonical và ghi `ignored_goal_updates`; không bác call chỉ vì phần plan phụ. Inline goals sai format được ghi `goal_warning`, call vẫn phải qua mọi kiểm tra tool/value. `revise` sửa/xóa goal vẫn cần lý do và giới hạn hai lần; revise chỉ nối thêm goal không tốn quota. `plan_revisions` từ phiên bản này đếm sửa/xóa, không đếm thêm goal, nên không so trực tiếp counter này với batch cũ.
+2. **Độ chắc chắn của hint:** `value_hints` là gợi ý, `trusted_value_hints` là tập nhỏ đủ điều kiện cho kiểm cưỡng chế/điền từ hint khi model báo thiếu. Query và suy ghép ngữ nghĩa không được dùng như đáp án chắc chắn. Province vé số chỉ rút trích khi có tên địa phương trong từ vựng bảo thủ sau dấu hiệu vé/đài/tỉnh; tên người viết hoa không đủ. Từ vựng không phủ mọi địa phương/cách viết. Forecast chỉ suy ngày mai với dấu hiệu thời gian rõ, không coi tên người Mai là ngày mai. Nếu vé số tham chiếu một người có nhiều chuyến công tác mà chưa rõ ngày, code báo `ambiguous_target` cho date.
+3. **Ambiguity và history trước write:** chặn tự chọn giữa các liên hệ cùng tên khi chưa có quan hệ/số/ID đủ phân biệt; cho phép giải tham chiếu theo lượt user trước đã chỉ định quan hệ. Chặn mở rộng một người nhận thành nhiều địa chỉ khi user chỉ chọn một mối. Khi yêu cầu chuyển khoản có điều kiện “chưa chuyển thì chuyển”, đối chiếu giao dịch thành công trong history theo tài khoản, người nhận, số tiền; không chuyển lại. Bằng chứng cũ được đưa vào observations với `origin=history`, không ghi thành executed call mới, không dùng tool slot; planner có thể dùng index đó để done.
+
+Trace bổ sung `goal_warning`, `ignored_goal_updates`, `history_evidence`; bằng chứng history giữ result thành công, không tự suy từ lời assistant. Chưa có bộ giải ambiguity tổng quát: các guard trên chỉ phủ quan hệ/liên hệ, một người nhận, ngày công tác và giao dịch có điều kiện đã xác định; không tự cấm mọi giao dịch lặp có chủ ý.
+
+Kiểm tra: **106 test qua**; replay checker trên **100 mẫu / 230 gold call** của seed 42 và 1121 không chặn gold call. Thông tin phiên bản trong [validation_after_seed1121.json](validation_after_seed1121.json). Label chỉ dùng trong kiểm tra, không đưa vào inference. Chưa chạy lại Qwen trên Kaggle; tính đủ goal và suy giá trị ngữ nghĩa vẫn cần đo thực nghiệm. Batch mới phải có fingerprint mới; kết quả zip seed 1121 vẫn thuộc code cũ `4e1ae5…`, proxy 24,8%, agent trung bình 51,9s.
+
 ## Sửa sau batch 50 mẫu (2026-10-30)
 
 Cốt lõi vẫn gồm ba node Qwen và checker bằng Python. Không đọc label/final_state trong inference, không thêm reviewer, không đổi score_proxy.

@@ -9,12 +9,12 @@ from agent import (
     missing_fields, parse_action, parse_object,
     valid_ask,
 )
-from evidence_rules import read_invalidated
+from evidence_rules import read_invalidated, write_evidence_issue, lottery_reference_issue
 from common import allowed_specs, dumps, result_facts, result_succeeded
 from pipeline_rules import (
     canonicalize_sms_destination, known_answer_for_ask,
     literal_grounding_error, optional_fields_for_intent, repeated_write,
-    semantic_value_error, tool_action_error, value_hints,
+    semantic_value_error, tool_action_error, value_hints, trusted_value_hints,
 )
 
 
@@ -79,9 +79,8 @@ def added_goals_error(candidate, current):
     if error:
         return None, error
     old = {goal["id"]: goal for goal in current}
-    for goal in proposed:
-        if goal["id"] in old and old[goal["id"]] != goal:
-            return None, "Goal cũ thay đổi; dùng revise để sửa hoặc bỏ goal."
+    # Inline goals are append-only suggestions. An accidental rewrite must
+    # neither erase a canonical goal nor prevent the independently valid call.
     added = [goal for goal in proposed if goal["id"] not in old]
     return [*current, *added], None
 
@@ -335,7 +334,9 @@ class Agent(PromptAgent):
                               "tool_reason": blocked.get("reason", "Cần làm rõ đối tượng")}
                     event["action"] = choice
             if choice["type"] == "revise":
-                if goals is None or plan_revisions >= 2:
+                append_only = (goals is not None and isinstance(choice.get("goals"), list)
+                               and all(goal in choice["goals"] for goal in goals))
+                if goals is None or (plan_revisions >= 2 and not append_only):
                     if reject(event, "planner", "invalid_plan_revision",
                               extra={"reason": "Chỉ sửa plan đã có, tối đa hai lần."}):
                         break
@@ -347,7 +348,8 @@ class Agent(PromptAgent):
                         break
                     continue
                 goals = new_goals
-                plan_revisions += 1
+                if not append_only:
+                    plan_revisions += 1
                 event["revised_plan"] = goals
                 trace.append(event)
                 feedback = None
@@ -371,19 +373,15 @@ class Agent(PromptAgent):
             elif goals is not None and choice["type"] in ("call", "ask") and "goals" in choice:
                 new_goals, plan_error = added_goals_error(choice, goals)
                 if plan_error:
-                    if reject(event, "planner", "invalid_goal_plan",
-                              extra={"reason": plan_error}):
-                        break
-                    continue
-                if new_goals != goals:
-                    if plan_revisions >= 2:
-                        if reject(event, "planner", "invalid_plan_revision",
-                                  extra={"reason": "Đã sửa plan hai lần."}):
-                            break
-                        continue
-                    goals = new_goals
-                    plan_revisions += 1
-                    event["added_goals"] = goals
+                    event["goal_warning"] = plan_error
+                else:
+                    changed = [item["id"] for item in choice["goals"]
+                               if any(old["id"] == item["id"] and old != item for old in goals)]
+                    if changed:
+                        event["ignored_goal_updates"] = changed
+                    if new_goals != goals:
+                        goals = new_goals
+                        event["added_goals"] = goals
             if choice["type"] == "done":
                 if goals:
                     done_error = done_evidence_error(choice, goals, observations)
@@ -509,6 +507,7 @@ class Agent(PromptAgent):
                 event["dropped_optional_fields"] = dropped
             event["selected_arguments"] = selected_arguments
             hints = value_hints(name, transcript, row, observations, spec)
+            trusted = trusted_value_hints(name, hints)
             if selected_arguments:
                 try:
                     value_output = generate("fill", selected_tool=spec,
@@ -530,7 +529,7 @@ class Agent(PromptAgent):
                     if (issue and issue["type"] == "missing_data"
                             and spec.get("kind") == "read"
                             and set(issue["fields"]) <= set(selected_arguments)
-                            and set(selected_arguments) <= set(hints)):
+                            and set(selected_arguments) <= set(trusted)):
                         values = {"arguments": {field: hints[field] for field in selected_arguments},
                                   "value_reasons": {field: "Giá trị đã xác định từ dữ liệu hiện có."
                                                     for field in selected_arguments}}
@@ -538,7 +537,7 @@ class Agent(PromptAgent):
                     elif (issue and issue["type"] == "missing_data"
                             and safe_broad_read
                             and set(issue["fields"]) <= set(selected_arguments)
-                            and not any(field in hints for field in issue["fields"])):
+                            and not any(field in trusted for field in issue["fields"])):
                         # The optional filter is unavailable. Read the full
                         # collection and let the planner use its actual rows.
                         event["dropped_unavailable_read_filter"] = issue["fields"]
@@ -546,7 +545,7 @@ class Agent(PromptAgent):
                         event["selected_arguments"] = []
                         values = {"arguments": {}, "value_reasons": {}}
                     else:
-                        known = {field: hints[field] for field in issue["fields"] if field in hints} if issue else {}
+                        known = {field: trusted[field] for field in issue["fields"] if field in trusted} if issue else {}
                         if known:
                             if reject(event, "value_selection", "answer_available",
                                       extra={"reason": "Giá trị đã có trong value_hints.",
@@ -593,12 +592,27 @@ class Agent(PromptAgent):
                     event["normalized_source"] = {"from": args["source"], "to": hints["source"]}
                     args["source"] = hints["source"]
                     action["value_reasons"]["source"] = "So sánh số dư với số tiền của hóa đơn đã xác định."
-            field, reason = semantic_value_error(name, args, transcript, hints)
+            field, reason = semantic_value_error(name, args, transcript, trusted)
             if field:
                 issue = {"type": "missing_data", "fields": [field], "reason": reason}
                 if reject(event, "value_selection", "semantic_value", issue=issue):
                     break
                 continue
+            reference_issue = lottery_reference_issue(name, transcript, row, observations)
+            if reference_issue:
+                if reject(event, "validation", "ambiguous_reference", issue=reference_issue):
+                    break
+                continue
+            if spec.get("kind") == "write":
+                evidence_issue, prior = write_evidence_issue(name, args, spec, transcript, row, observations)
+                if evidence_issue:
+                    if prior is not None and not any(item.get("history_evidence") == prior for item in observations):
+                        observations.append({**prior, "history_evidence": prior, "origin": "history"})
+                    error = "already_completed_in_history" if prior else "ambiguous_write_target"
+                    if reject(event, "validation", error, issue=evidence_issue,
+                              extra={"next_step": "done hoặc tiếp tục goal còn thiếu" if prior else "ask đúng field đích"}):
+                        break
+                    continue
             validation = env.validate(name, args)
             event["validation"] = validation
             if not validation["ok"]:
