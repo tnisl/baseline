@@ -1,0 +1,17 @@
+{
+  "validated_at_utc": "2026-10-30T14:24:49.123013+00:00",
+  "workflow_sha256": "b836133e38f5006e66aac9e3b289677a358922e945d16901089fdcd5438f8036",
+  "architecture": "planner_tool_set_caller",
+  "validation_kind": "CPU integration: scripted node outputs and real ToolEnv",
+  "tests_run": 26,
+  "tests_passed": 26,
+  "tests_failed": 0,
+  "tests_skipped": 0,
+  "catalog_tools": 147,
+  "guidance_schema_variants_compiled": 149,
+  "python_ast": "passed",
+  "notebook_code_ast": "passed",
+  "notebook_saved_outputs": "none",
+  "qwen_gpu_inference_run": false,
+  "quality_or_speed_improvement_claimed": false
+}
