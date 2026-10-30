@@ -1,0 +1,15 @@
+{
+  "validated_at_utc": "2026-10-30T13:35:14.212070+00:00",
+  "workflow_sha256": "971f068ce92bf278af837909a15f3b029af5ddbd5aa63f2a8f1ff119a75dacb9",
+  "validation_kind": "CPU integration: scripted model, real ToolEnv",
+  "tests_run": 23,
+  "tests_passed": 23,
+  "tests_failed": 0,
+  "tests_skipped": 0,
+  "guidance_schema_variants_compiled": 590,
+  "python_ast": "passed",
+  "notebook_code_ast": "passed",
+  "notebook_saved_outputs": "none",
+  "qwen_gpu_inference_run": false,
+  "quality_or_speed_improvement_claimed": false
+}

@@ -1,0 +1,14 @@
+flowchart TD
+    I[Request + context + history + catalog] --> P[Planner: ordered tool list]
+    P --> L[Executor: next tool in plan]
+    L --> A[Code adds required + argument selector]
+    A --> V[Value selector uses available env results]
+    V --> E[env.validate then env.call]
+    E -->|success and more steps| L
+    E -->|plan complete and after=done| S[Stop]
+    E -->|after=replan in adaptive mode| P
+    E -->|env error in adaptive mode| P
+    E -->|env error in fixed mode| S
+    P -->|ask| Q[env.validate and env.call sys.ask_missing_info]
+    Q --> S
+    P -->|done| S
