@@ -1,0 +1,12 @@
+flowchart TD
+    I[Request + context + history + available tools] --> T[Tool selector]
+    T -->|call| A[Required from schema + argument selector]
+    A --> V[Value selector]
+    V --> E[env.validate]
+    E -->|invalid| F[Actual environment feedback]
+    E -->|valid| C[env.call]
+    C --> F
+    F --> T
+    T -->|ask| Q[env.validate + env.call sys.ask_missing_info]
+    Q --> S[Stop]
+    T -->|done| S
