@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from inference_errors import ContextLimitError, InferenceBackendError
 import wave
 
 from common import audio_path
@@ -145,6 +146,7 @@ class QwenVLLM:
             enable_prefix_caching=True,
             attention_backend=attention_backend,
             seed=seed,
+            structured_outputs_config={"backend": "guidance"},
         )
         self.tokenizer = self.engine.get_tokenizer()
 
@@ -166,17 +168,22 @@ class QwenVLLM:
         for messages, limit, schema in requests:
             ids = self.encode(messages)
             if len(ids) + limit > self.max_model_len:
-                raise ValueError(f"Prompt ({len(ids)}) + generation ({limit}) exceeds context")
+                raise ContextLimitError(f"Prompt ({len(ids)}) + generation ({limit}) exceeds context")
             options = dict(temperature=self.temperature, top_p=0.8, top_k=20,
                            seed=self.seed, max_tokens=limit)
             if schema is not None and self.structured_outputs:
+                from output_contracts import validate_decoder_schema
+                validate_decoder_schema(schema)
                 from vllm.sampling_params import StructuredOutputsParams
                 options["structured_outputs"] = StructuredOutputsParams(json=schema)
             prompts.append({"prompt_token_ids": ids})
             sampling.append(self.SamplingParams(**options))
             counts.append(len(ids))
         start = time.perf_counter()
-        responses = self.engine.generate(prompts, sampling[0] if len(sampling) == 1 else sampling, use_tqdm=False)
+        try:
+            responses = self.engine.generate(prompts, sampling[0] if len(sampling) == 1 else sampling, use_tqdm=False)
+        except Exception as exc:
+            raise InferenceBackendError("vLLM generation failed: " + str(exc)) from exc
         elapsed = time.perf_counter() - start
         return [{"text": response.outputs[0].text.strip(), "prompt_tokens": count,
                  "generation_tokens": len(response.outputs[0].token_ids),

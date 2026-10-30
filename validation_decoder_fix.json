@@ -1,0 +1,10 @@
+{
+  "workflow_sha256": "c1e6aefcad5b104519f5c677c43a2baf9eb1e26ba54a8be53ae20689cd1b145d",
+  "tests_passed": 133,
+  "grammar_backend": "guidance",
+  "llguidance_version": "1.3.0",
+  "compiled_schema_variants": 539,
+  "original_uniqueItems_failure_reproduced": true,
+  "gpu_generation_tested": false,
+  "scope": "Implementation fix: decoder compatibility and error classification; workflow unchanged."
+}

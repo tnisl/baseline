@@ -25,7 +25,7 @@ def workflow_sha256():
     """Fingerprint prompt assembly, pipeline and shared behavior for comparisons."""
     here = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    for name in ("agent.py", "agent_pipeline.py", "pipeline_rules.py", "evidence_rules.py", "intent_contract.py", "common.py", "models.py", "output_contracts.py", "batch_inference.py", "semantic_checks.py"):
+    for name in ("agent.py", "agent_pipeline.py", "pipeline_rules.py", "evidence_rules.py", "intent_contract.py", "common.py", "models.py", "output_contracts.py", "batch_inference.py", "semantic_checks.py", "inference_errors.py"):
         digest.update(name.encode("utf-8"))
         digest.update((here / name).read_bytes())
     return digest.hexdigest()
@@ -107,7 +107,28 @@ def load_or_run_asr(rows, root, output_dir, model_id, batch_size, seed):
     return asr_experiment(rows, root, output_dir, model_id, batch_size, seed)
 
 
+
 def agent_experiment(rows, transcripts, root, output_dir, mode, agent, catalog, ToolEnv, asr_predictions=None, workers=1):
+    run_dir = Path(output_dir) / mode
+    run_dir.mkdir(parents=True, exist_ok=True)
+    # Never leave an older successful summary next to traces from an aborted run.
+    for name in ("summary.json", "report.md", "charts.png", "cases.csv", "errors.csv",
+                 "predictions.jsonl", "traces.jsonl"):
+        (run_dir / name).unlink(missing_ok=True)
+    status = run_dir / "run_status.json"
+    write_json(status, {"status": "running", "requested_samples": len(rows)})
+    try:
+        cases = _agent_experiment(rows, transcripts, root, output_dir, mode, agent,
+                                 catalog, ToolEnv, asr_predictions, workers)
+    except Exception as exc:
+        write_json(status, {"status": "aborted", "error_type": type(exc).__name__,
+                            "error": str(exc), "note": "Partial traces only; no valid batch summary."})
+        raise
+    write_json(status, {"status": "complete", "samples": len(cases)})
+    return cases
+
+
+def _agent_experiment(rows, transcripts, root, output_dir, mode, agent, catalog, ToolEnv, asr_predictions=None, workers=1):
     run_dir = Path(output_dir) / mode
     run_dir.mkdir(parents=True, exist_ok=True)
     predictions_path = run_dir / "predictions.jsonl"
@@ -278,6 +299,7 @@ def main():
     ))
     output_dir.mkdir(parents=True, exist_ok=True)
     config = vars(args).copy()
+    config["structured_output_backend"] = "guidance" if args.llm_backend == "vllm" and not args.no_structured_outputs else None
     config.update({"resolved_data_root": str(root), "sample_ids": [row["id"] for row in rows],
                    "sample_count": len(rows), "reproducibility": runtime_versions(),
                    "workflow_sha256": workflow_sha256()})
@@ -294,6 +316,12 @@ def main():
     if args.mode == "asr":
         return
 
+    catalog = load_catalog(root)
+    ToolEnv = import_toolenv(root)
+    if args.llm_backend == "vllm" and not args.no_structured_outputs:
+        from output_contracts import preflight_schemas
+        count = preflight_schemas(catalog)
+        print(f"Structured output preflight: {count} schema variants compiled with guidance", flush=True)
     if args.llm_backend == "vllm":
         from models import QwenVLLM
         llm = QwenVLLM(
@@ -316,27 +344,27 @@ def main():
     if args.inference_workers > 1:
         from batch_inference import BatchedLLM
         llm = BatchedLLM(llm, args.inference_workers, args.batch_wait_ms)
-    catalog = load_catalog(root)
-    ToolEnv = import_toolenv(root)
     agent = Agent(
         llm, catalog, ToolEnv, root,
         max_tool_calls=args.max_tool_calls, max_decisions=args.max_decisions,
         max_repairs=args.max_repairs, max_prompt_tokens=args.max_prompt_tokens,
         max_new_tokens=args.max_new_tokens, max_no_progress=args.max_no_progress,
     )
-    workflow_cases = baseline_cases = None
-    if args.mode in ("workflow", "all"):
-        workflow_cases = agent_experiment(
-            rows, {row["id"]: row["audio_text"] for row in rows},
-            root, output_dir, "workflow_gold", agent, catalog, ToolEnv, workers=args.inference_workers)
-    if args.mode in ("baseline", "all"):
-        baseline_cases = agent_experiment(
-            rows, {row["id"]: asr_predictions[row["id"]]["text"] for row in rows},
-            root, output_dir, "baseline_asr", agent, catalog, ToolEnv, asr_predictions, workers=args.inference_workers)
-    if workflow_cases is not None and baseline_cases is not None:
-        compare_runs(output_dir, workflow_cases, baseline_cases, asr_predictions, rows)
-    if args.inference_workers > 1:
-        llm.close()
+    try:
+        workflow_cases = baseline_cases = None
+        if args.mode in ("workflow", "all"):
+            workflow_cases = agent_experiment(
+                rows, {row["id"]: row["audio_text"] for row in rows},
+                root, output_dir, "workflow_gold", agent, catalog, ToolEnv, workers=args.inference_workers)
+        if args.mode in ("baseline", "all"):
+            baseline_cases = agent_experiment(
+                rows, {row["id"]: asr_predictions[row["id"]]["text"] for row in rows},
+                root, output_dir, "baseline_asr", agent, catalog, ToolEnv, asr_predictions, workers=args.inference_workers)
+        if workflow_cases is not None and baseline_cases is not None:
+            compare_runs(output_dir, workflow_cases, baseline_cases, asr_predictions, rows)
+    finally:
+        if args.inference_workers > 1:
+            llm.close()
     print(f"Finished. Results: {output_dir}")
 
 

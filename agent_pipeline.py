@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from inference_errors import ContextLimitError
 import re
 
 from agent import (
@@ -315,7 +316,7 @@ class Agent(PromptAgent):
         for decision in range(1, self.max_decisions + 1):
             try:
                 output = generate()
-            except ValueError as exc:
+            except ContextLimitError as exc:
                 trace.append({"decision": decision, "error": str(exc)})
                 stop_reason = "context_overflow"
                 break
@@ -512,7 +513,7 @@ class Agent(PromptAgent):
                 try:
                     fields_output = generate("select_arguments", selected_tool=spec,
                                              tool_reason=choice["tool_reason"])
-                except ValueError as exc:
+                except ContextLimitError as exc:
                     event["error"] = str(exc)
                     trace.append(event)
                     stop_reason = "context_overflow"
@@ -561,7 +562,7 @@ class Agent(PromptAgent):
                                             tool_reason=choice["tool_reason"],
                                             selected_arguments=selected_arguments,
                                             value_hints=hints)
-                except ValueError as exc:
+                except ContextLimitError as exc:
                     event["error"] = str(exc)
                     trace.append(event)
                     stop_reason = "context_overflow"
@@ -597,7 +598,7 @@ class Agent(PromptAgent):
                                                         selected_arguments=selected_arguments, value_hints=hints)
                                 values = parse_object(value_output["text"])
                                 event["argument_output_after_repair"] = value_output["text"]
-                        except ValueError as exc:
+                        except ContextLimitError as exc:
                             event["selector_repair_error"] = str(exc)
                         finally:
                             feedback = saved_feedback

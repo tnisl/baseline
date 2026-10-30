@@ -3,6 +3,19 @@
 This folder is an independent experiment. It keeps PhoWhisper-medium, Qwen3-4B-Instruct-2507, vLLM/Transformers adapters, and the three v1 experiment modes. It writes to a separate output folder, so v1 results remain available for comparison.
 
 
+## Sửa lỗi grammar trong report 0 điểm
+
+Batch `fc902c1…` dừng 50/50 trước output planner vì backend grammar không hỗ trợ `uniqueItems`. Đây là lỗi tích hợp, không phải context overflow hay kết quả đánh giá năng lực Qwen.
+
+- Bỏ `uniqueItems` khỏi mọi schema gửi decoder, kể cả field lồng từ catalog; code Python vẫn kiểm trùng selected_arguments, issue.fields, goal IDs và ask.params.
+- Chọn rõ **guidance** trong `structured_outputs_config` của vLLM, thay vì để auto chọn backend. Dùng llguidance cùng dải phiên bản của vLLM0.16.
+- Trước khi load model, runner biên dịch/validate **539 biến thể schema** bằng chính llguidance (planner đầu/cuối, arg, val có full/required và từng optional). Schema thực tế mỗi node cũng được kiểm trước generate, cache512 schema. Bước này chạy trên CPU, không tải trọng số.
+- Lỗi context có `ContextLimitError` riêng. Lỗi schema/backend ném `StructuredOutputError`/`InferenceBackendError`, làm dừng run và giữ nguyên thông báo gốc; không tạo50 mẫu giả `context_overflow`. Lỗi phát sinh trong sửa selector cũng không còn bị nuốt.
+- Khi run đã bắt đầu ghi artifacts mà bị lỗi, `run_status.json` ghi aborted; summary/report cũ được xóa để không lẫn với trace mới. Mẫu đã thực thi trước lỗi giữ trong partial traces; không tự retry write.
+- Batch scheduler được đóng trong finally kể cả khi run thất bại. Không đổi prompt, workflow hay guard nghiệp vụ trong bản sửa tích hợp này, ngoài việc bổ sung kiểm ask.params trùng sau khi bỏ uniqueItems.
+
+**Kiểm tra:** `test_decoder_integration.py` tái hiện schema uniqueItems bị từ chối bằng compiler thật, kiểm toàn catalog biên dịch, phân biệt context/backend và fail-fast ở cả3 node. Có thể chạy CPU: `python -m unittest discover -s baseline_v2 -p 'test_*.py' -q` sau cài requirements. `validation_decoder_fix.json` ghi kết quả. Chưa chạy generation với trọng số Qwen trên GPU; biên dịch grammar CPU không thay thế thử1 mẫu trên Kaggle. Giữ `STRUCTURED_OUTPUTS=True`; runner tự preflight schema, không thêm cell kiểm GPU.
+
 ## Cập nhật từ batch 50 mẫu — 30/10/2026
 
 Vẫn **planner → argument selector → value selector → checker → tool**. Không thêm caller/reviewer, không fine-tune. Batch này là mốc trước sửa: proxy32.53%, hash23/50, mean47.94s; chưa có kết quả Qwen GPU sau thay đổi.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+from inference_errors import ContextLimitError
 from collections import Counter
 
 from evidence_rules import reference_candidates
@@ -231,6 +232,8 @@ def valid_ask(name, params, specs):
         return False
     if not isinstance(params, list) or not params or not all(isinstance(p, str) for p in params):
         return False
+    if len(set(params)) != len(params):
+        return False
     schema = specs[name].get("parameters") or {}
     return set(params) <= set((schema.get("properties") or {}))
 
@@ -413,7 +416,7 @@ class Agent:
             elif observed and len(dumps(observed[-1]["result"])) > 1500:
                 observed[-1]["result"] = dumps(observed[-1]["result"])[:1500] + " [truncated]"
             else:
-                raise ValueError(
+                raise ContextLimitError(
                     f"Prompt needs {tokens} tokens after safe trimming; tool schemas cannot be dropped"
                 )
 
