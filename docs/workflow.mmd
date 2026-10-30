@@ -1,0 +1,15 @@
+flowchart TD
+    I[Request + context + history + allowed catalog] --> P[Planner: one step instruction]
+    P -->|next=caller| C[Caller: tool + arguments + values]
+    C --> V[env.validate]
+    V -->|valid| T[env.call]
+    V -->|actual validation error| S[Summarizer: review raw observations]
+    T -->|actual success or failure response| S
+    P -->|next=summarizer: no tool step| S
+    S -->|next=planner| P
+    S -->|next=done or give_up + answer| F[Stop with final answer]
+    T -->|sys.ask_missing_info succeeds| W[Summarizer restricted to wait]
+    W --> U[Stop: ask_missing_info]
+    C -->|invalid model output / budget| X[Stop: code guard]
+    T -->|repeated read/error / duplicate write| X
+    P -->|repeated handoff or round limit| X
