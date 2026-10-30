@@ -37,23 +37,23 @@ def argument_schema(spec):
     return obj(properties, required)
 
 
-def node_schema(phase, specs):
+def node_schema(phase, specs, *, selected_tool=None, max_plan_steps=24):
     names = sorted(name for name in specs if name != 'sys.ask_missing_info')
     if phase == 'plan':
-        return obj({'tools': {'type': 'array', 'maxItems': len(names),
+        return obj({'tools': {'type': 'array', 'maxItems': max_plan_steps,
                               'items': {'type': 'string', 'enum': names} if names else False}})
     if phase != 'call':
         raise ValueError('Unknown node phase: ' + str(phase))
-    branches = [obj({'type': {'const': 'done'}})]
-    for name in names:
-        spec = specs[name]
-        branches.append(obj({'type': {'const': 'call'}, 'name': {'const': name},
-                             'arguments': argument_schema(spec)}))
-        fields = list(spec.get('parameters', {}).get('properties') or {})
-        if fields:
-            branches.append(obj({'type': {'const': 'ask'}, 'tool_name': {'const': name},
-                                 'params': {'type': 'array', 'minItems': 1,
-                                            'items': {'type': 'string', 'enum': fields}}}))
+    if selected_tool not in names:
+        raise ValueError('Caller schema requires one available selected_tool')
+    spec = specs[selected_tool]
+    branches = [obj({'type': {'const': 'call'}, 'arguments': argument_schema(spec)}),
+                obj({'type': {'const': 'skip'}}), obj({'type': {'const': 'blocked'}})]
+    fields = list(spec.get('parameters', {}).get('properties') or {})
+    if fields and 'sys.ask_missing_info' in specs:
+        branches.append(obj({'type': {'const': 'ask'},
+                             'params': {'type': 'array', 'minItems': 1,
+                                        'items': {'type': 'string', 'enum': fields}}}))
     return {'anyOf': branches}
 
 
@@ -74,12 +74,14 @@ def validate_decoder_schema(schema):
 
 def preflight_schemas(catalog):
     validate_decoder_schema(node_schema('plan', catalog))
-    validate_decoder_schema(node_schema('call', catalog))
-    validate_decoder_schema(node_schema('call', {}))
-    count = 3
+    validate_decoder_schema(node_schema('plan', {}, max_plan_steps=0))
+    count = 2
     for name, spec in catalog.items():
         if name == 'sys.ask_missing_info':
             continue
-        validate_decoder_schema(node_schema('call', {name: spec}))
+        scoped = {name: spec}
+        if 'sys.ask_missing_info' in catalog:
+            scoped['sys.ask_missing_info'] = catalog['sys.ask_missing_info']
+        validate_decoder_schema(node_schema('call', scoped, selected_tool=name))
         count += 1
     return count

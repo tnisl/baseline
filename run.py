@@ -147,6 +147,9 @@ def _agent_experiment(rows, transcripts, root, output_dir, mode, agent, catalog,
                 "id": row["id"], "transcript": outcome["transcript"],
                 "stop_reason": outcome["stop_reason"],
                 "selected_tools": outcome["selected_tools"],
+                "tool_plan": outcome["tool_plan"], "plan_step_count": outcome["plan_step_count"],
+                "processed_steps": outcome["processed_steps"], "skipped_steps": outcome["skipped_steps"],
+                "step_results": outcome["step_results"],
                 "planner_calls": outcome["planner_calls"], "caller_calls": outcome["caller_calls"],
                 "trace": outcome["trace"]
             }) + "\n")
@@ -169,7 +172,9 @@ def _agent_experiment(rows, transcripts, root, output_dir, mode, agent, catalog,
     summary["inference_workers"] = workers
     summary["latency_note"] = "Concurrent latency includes batch queue time; use workers=1 for isolated latency."
     summary["mode"] = mode
-    summary["architecture"] = "planner_tool_set_caller"
+    summary["architecture"] = "ordered_tool_plan_caller"
+    summary["tool_order"] = "fixed_by_planner"
+    summary["caller_tool_choice"] = False
     summary["feedback_source"] = "env.validate/env.call"
     summary["model_id"] = agent.llm.model_id
     summary["llm_backend"] = getattr(agent.llm, "backend", "transformers")
@@ -257,6 +262,8 @@ def parse_args():
                         help="Disable per-node constrained JSON generation for A/B")
     parser.add_argument("--asr-batch-size", type=int, default=1)
     parser.add_argument("--max-tool-calls", type=int, default=10)
+    parser.add_argument("--max-plan-steps", type=int, default=24,
+                        help="Maximum ordered tool slots, including conditional steps that may be skipped")
     parser.add_argument("--max-decisions", type=int, default=24,
                         help="Maximum planner plus caller requests per sample")
     parser.add_argument("--save-node-inputs", action="store_true",
@@ -273,6 +280,9 @@ def main():
     seed_everything(args.seed)
     if args.limit < 0 or args.asr_batch_size < 1 or args.max_no_progress < 1:
         raise ValueError("--limit must be >= 0, --asr-batch-size and --max-no-progress must be >= 1")
+    if min(args.max_tool_calls, args.max_decisions, args.max_plan_steps,
+           args.max_prompt_tokens, args.max_new_tokens) < 1:
+        raise ValueError("Tool, decision, plan and token limits must be positive")
     if not 0 <= args.llm_temperature <= 2:
         raise ValueError("--llm-temperature must be in [0, 2]")
     if args.max_prompt_tokens + args.max_new_tokens > 16000:
@@ -306,13 +316,15 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     config = vars(args).copy()
     config["structured_output_backend"] = "guidance" if args.llm_backend == "vllm" and not args.no_structured_outputs else None
-    config.update({"architecture": "planner_tool_set_caller",
+    config.update({"architecture": "ordered_tool_plan_caller",
+                   "tool_order": "fixed_by_planner", "caller_tool_choice": False,
                    "feedback_source": "env.validate/env.call", "model_authored_feedback": False,
                    "resolved_data_root": str(root), "sample_ids": [row["id"] for row in rows],
                    "sample_count": len(rows), "reproducibility": runtime_versions(),
                    "workflow_sha256": workflow_sha256()})
     write_json(output_dir / "run_config.json", config)
     print(f"Data root: {root} | samples: {len(rows)} | output: {output_dir}")
+    print("Architecture: ordered_tool_plan_caller | planner fixes order; caller fills arguments", flush=True)
 
     asr_predictions = None
     if args.mode in ("asr", "all"):
@@ -355,6 +367,7 @@ def main():
     agent = Agent(
         llm, catalog, ToolEnv, root,
         max_tool_calls=args.max_tool_calls, max_decisions=args.max_decisions,
+        max_plan_steps=args.max_plan_steps,
         max_prompt_tokens=args.max_prompt_tokens,
         max_new_tokens=args.max_new_tokens, max_no_progress=args.max_no_progress,
         save_node_inputs=args.save_node_inputs,

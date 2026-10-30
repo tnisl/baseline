@@ -268,6 +268,18 @@ def max_matches(predicted, gold, catalog):
     return sum(add(i, set()) for i in range(len(predicted)))
 
 
+def ordered_matches(planned, gold):
+    """LCS of tool names, including repeat occurrences; offline diagnostic only."""
+    previous = [0] * (len(gold) + 1)
+    for name in planned:
+        current = [0]
+        for j, target in enumerate(gold, 1):
+            current.append(previous[j - 1] + 1 if name == target
+                           else max(previous[j], current[-1]))
+        previous = current
+    return previous[-1]
+
+
 def evaluate_agent_case(row, outcome, root, catalog, ToolEnv):
     gold_calls = row["label"]["tool_calls"]
     gold_env = ToolEnv("train", row["id"], root=root)
@@ -289,6 +301,9 @@ def evaluate_agent_case(row, outcome, root, catalog, ToolEnv):
     selected = set(outcome['selected_tools'])
     gold_set = set(gold_names) - {'sys.ask_missing_info'}
     tool_set_recall = len(selected & gold_set) / len(gold_set) if gold_set else 1.0
+    gold_order = [c['name'] for c in gold_calls if c['name'] != 'sys.ask_missing_info']
+    tool_plan = outcome['tool_plan']
+    order_recall = ordered_matches(tool_plan, gold_order) / len(gold_order) if gold_order else 1.0
     pred_names = Counter(c["name"] for c in predicted)
     missing_names = list((gold_names - pred_names).elements())
     extra_names = list((pred_names - gold_names).elements())
@@ -313,6 +328,9 @@ def evaluate_agent_case(row, outcome, root, catalog, ToolEnv):
         "stop_reason": outcome["stop_reason"], "decisions": outcome["decisions"],
         "selected_tools": outcome["selected_tools"], "selected_tool_count": len(selected),
         "tool_set_recall": tool_set_recall,
+        "tool_plan": tool_plan, "plan_step_count": outcome["plan_step_count"],
+        "processed_steps": outcome["processed_steps"], "skipped_steps": outcome["skipped_steps"],
+        "tool_order_recall": order_recall, "tool_plan_exact_match": tool_plan == gold_order,
         "planner_calls": outcome["planner_calls"], "caller_calls": outcome["caller_calls"],
         "llm_calls": outcome["llm_calls"], "tool_iterations": outcome["tool_iterations"],
         "invalid_schema_proposals": outcome["invalid_schema_proposals"],
@@ -349,6 +367,11 @@ def agent_summary(cases):
         "llm_calls_per_sample": describe([x["llm_calls"] for x in cases]),
         "selected_tools_per_sample": describe([x["selected_tool_count"] for x in cases]),
         "mean_tool_set_recall": statistics.mean(x["tool_set_recall"] for x in cases),
+        "plan_steps_per_sample": describe([x["plan_step_count"] for x in cases]),
+        "processed_steps_per_sample": describe([x["processed_steps"] for x in cases]),
+        "skipped_steps_per_sample": describe([x["skipped_steps"] for x in cases]),
+        "mean_tool_order_recall": statistics.mean(x["tool_order_recall"] for x in cases),
+        "exact_tool_plans": sum(x["tool_plan_exact_match"] for x in cases),
         "tool_iterations_per_sample": describe([x["tool_iterations"] for x in cases]),
         "tool_failures_per_sample": describe([x.get("tool_failures", 0) for x in cases]),
         "no_progress_events_per_sample": describe([x.get("no_progress_events", 0) for x in cases]),

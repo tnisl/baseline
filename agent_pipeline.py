@@ -1,4 +1,4 @@
-"""One planner pass, then a caller restricted to that tool set; no repair nodes."""
+"""One ordered tool plan; caller fills each fixed step without reordering or repair."""
 from copy import deepcopy
 import json
 import math
@@ -47,30 +47,31 @@ def fingerprint(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
-def select_tools(output, specs):
+def select_plan(output, specs, max_steps):
     names = output.get('tools')
-    if (set(output) != {'tools'} or not string_set(names)
+    if (set(output) != {'tools'} or not isinstance(names, list)
+            or not all(isinstance(name, str) for name in names) or len(names) > max_steps
             or not set(names) <= (set(specs) - {'sys.ask_missing_info'})):
-        raise ContractError('invalid_tool_set')
-    # This is a set, not a sequence. Canonicalize independently of model output order.
-    return sorted(names)
+        raise ContractError('invalid_tool_plan')
+    # Repeated names are distinct call slots. Never sort or deduplicate the plan.
+    return names.copy()
 
 
-def check_call(output, specs):
+def check_call(output, specs, selected_tool):
+    if selected_tool not in specs or selected_tool == 'sys.ask_missing_info':
+        raise ContractError('invalid_current_tool')
     kind = output.get('type')
-    if kind == 'done' and set(output) == {'type'}:
+    if kind in ('skip', 'blocked') and set(output) == {'type'}:
         return
-    if kind == 'call' and set(output) == {'type', 'name', 'arguments'}:
-        name, arguments = output['name'], output['arguments']
-        if isinstance(name, str) and name in specs and name != 'sys.ask_missing_info':
-            properties = specs[name].get('parameters', {}).get('properties') or {}
-            if isinstance(arguments, dict) and set(arguments) <= set(properties):
-                return
-    if kind == 'ask' and set(output) == {'type', 'tool_name', 'params'}:
-        name, fields = output['tool_name'], output['params']
-        if (isinstance(name, str) and name in specs and name != 'sys.ask_missing_info'
-                and string_set(fields) and fields
-                and set(fields) <= set(specs[name].get('parameters', {}).get('properties') or {})):
+    properties = specs[selected_tool].get('parameters', {}).get('properties') or {}
+    if kind == 'call' and set(output) == {'type', 'arguments'}:
+        arguments = output['arguments']
+        if isinstance(arguments, dict) and set(arguments) <= set(properties):
+            return
+    if kind == 'ask' and set(output) == {'type', 'params'}:
+        fields = output['params']
+        if ('sys.ask_missing_info' in specs and string_set(fields) and fields
+                and set(fields) <= set(properties)):
             return
     raise ContractError('invalid_caller_output')
 
@@ -78,16 +79,18 @@ def check_call(output, specs):
 class Agent:
     def __init__(self, llm, catalog, ToolEnv, root, *, max_tool_calls=10,
                  max_decisions=24, max_prompt_tokens=11500, max_new_tokens=512,
-                 max_no_progress=2, save_node_inputs=False):
+                 max_no_progress=2, max_plan_steps=24, save_node_inputs=False):
         if any(x < 1 for x in (max_tool_calls, max_decisions, max_prompt_tokens,
-                               max_new_tokens, max_no_progress)):
+                               max_new_tokens, max_no_progress, max_plan_steps)):
             raise ValueError('Agent limits must be positive')
         self.llm, self.catalog, self.ToolEnv, self.root = llm, catalog, ToolEnv, root
         self.max_tool_calls, self.max_decisions = max_tool_calls, max_decisions
         self.max_prompt_tokens, self.max_new_tokens = max_prompt_tokens, max_new_tokens
         self.max_no_progress, self.save_node_inputs = max_no_progress, save_node_inputs
+        self.max_plan_steps = max_plan_steps
 
-    def messages(self, row, transcript, specs, feedback, remaining, phase, selected_tools=None):
+    def messages(self, row, transcript, specs, feedback, remaining, phase,
+                 tool_plan=None, step_index=0, step_results=None):
         payload = {
             'request': transcript,
             'context': {k: deepcopy(v) for k, v in row['context'].items() if k != 'installed_apps'},
@@ -96,6 +99,7 @@ class Agent:
         }
         if phase == 'plan':
             # The planner is invoked before any tool interaction, exactly once.
+            payload['max_plan_steps'] = self.max_plan_steps
             payload['available_tools'] = [
                 {'name': s['name'], 'kind': s.get('kind'), 'description': s.get('description', ''),
                  'input_fields': {k: {key: value for key, value in p.items()
@@ -108,8 +112,12 @@ class Agent:
             ]
             system = PLANNER_SYSTEM
         elif phase == 'call':
-            payload['selected_tools'] = list(selected_tools or [])
-            payload['available_tools'] = [deepcopy(specs[name]) for name in payload['selected_tools']]
+            if not tool_plan or not 0 <= step_index < len(tool_plan):
+                raise ValueError('Caller requires a current plan step')
+            payload['tool_plan'] = list(tool_plan)
+            payload['step_index'] = step_index
+            payload['selected_tool'] = deepcopy(specs[tool_plan[step_index]])
+            payload['step_results'] = deepcopy(step_results or [])
             payload['env_feedback'] = deepcopy(feedback)
             system = CALL_SYSTEM
         else:
@@ -125,14 +133,15 @@ class Agent:
             elif len(payload.get('env_feedback', [])) > 1:
                 payload['env_feedback'].pop(0)
             else:
-                raise ContextLimitError('Request, tool set/schema and latest environment response exceed prompt budget')
+                raise ContextLimitError('Request, ordered plan/current schema and latest response exceed prompt budget')
             trimmed = True
 
     def run(self, row, transcript):
         env = self.ToolEnv('train', row['id'], root=self.root)
         specs = {s['name']: s for s in allowed_specs(row, self.catalog)}
         feedback, trace, prompt_counts = [], [], []
-        selected_tools = []
+        tool_plan, step_results = [], []
+        step_index = 0
         generation_tokens = llm_latency = 0
         invalid = parse_errors = failures = no_progress_events = 0
         caller_calls = no_progress_streak = 0
@@ -145,12 +154,17 @@ class Agent:
             nonlocal generation_tokens, llm_latency, trimmed
             messages, cut = self.messages(row, transcript, specs, feedback,
                                          self.max_tool_calls - len(env.get_tool_calls()), phase,
-                                         selected_tools=selected_tools)
+                                         tool_plan=tool_plan, step_index=step_index,
+                                         step_results=step_results)
             trimmed |= cut
             options = {}
             if getattr(self.llm, 'structured_outputs', False):
-                scoped = specs if phase == 'plan' else {name: specs[name] for name in selected_tools}
-                options['output_schema'] = node_schema(phase, scoped)
+                scoped = specs if phase == 'plan' else {tool_plan[step_index]: specs[tool_plan[step_index]]}
+                if phase == 'call' and 'sys.ask_missing_info' in specs:
+                    scoped['sys.ask_missing_info'] = specs['sys.ask_missing_info']
+                options['output_schema'] = node_schema(
+                    phase, scoped, selected_tool=tool_plan[step_index] if phase == 'call' else None,
+                    max_plan_steps=self.max_plan_steps)
             output = self.llm.complete(messages, max_new_tokens=self.max_new_tokens, **options)
             prompt_counts.append(output['prompt_tokens'])
             generation_tokens += output['generation_tokens']
@@ -172,29 +186,38 @@ class Agent:
             try:
                 if phase == 'plan':
                     output = generate(phase, event)
-                    selected_tools = select_tools(output, specs)
-                    event['action'] = deepcopy(output)
-                    event['selected_tools'] = selected_tools.copy()
-                    if not selected_tools:
+                    tool_plan = select_plan(output, specs, self.max_plan_steps)
+                    event['planner_output'] = deepcopy(output)
+                    event['tool_plan'] = tool_plan.copy()
+                    if not tool_plan:
                         stop = 'done'
                         break
                     continue
                 caller_calls += 1
-                action = generate(phase, event)
-                scoped = {name: specs[name] for name in selected_tools}
-                check_call(action, scoped)
-                event['action'] = deepcopy(action)
-                if action['type'] == 'done':
-                    stop = 'done'
+                selected_tool = tool_plan[step_index]
+                event.update(step_index=step_index, selected_tool=selected_tool)
+                output = generate(phase, event)
+                check_call(output, specs, selected_tool)
+                event['caller_output'] = deepcopy(output)
+                if output['type'] == 'blocked':
+                    stop = 'caller_blocked'
                     break
+                if output['type'] == 'skip':
+                    step_results.append({'step_index': step_index, 'tool': selected_tool, 'status': 'skipped'})
+                    step_index += 1
+                    if step_index == len(tool_plan):
+                        stop = 'done'
+                        break
+                    continue
                 if len(env.get_tool_calls()) >= self.max_tool_calls:
                     event['local_diagnostic'] = {'code': 'tool_budget_exhausted'}
                     stop = 'tool_limit'
                     break
-                asking = action['type'] == 'ask'
-                name = 'sys.ask_missing_info' if asking else action['name']
-                arguments = ({'tool_name': action['tool_name'], 'params': action['params']}
-                             if asking else action['arguments'])
+                asking = output['type'] == 'ask'
+                name = 'sys.ask_missing_info' if asking else selected_tool
+                arguments = ({'tool_name': selected_tool, 'params': output['params']}
+                             if asking else output['arguments'])
+                event['action'] = {'name': name, 'arguments': deepcopy(arguments)}
             except json.JSONDecodeError:
                 parse_errors += 1
                 event['local_diagnostic'] = {'code': 'invalid_json', 'stage': phase}
@@ -239,13 +262,21 @@ class Agent:
                 seen_reads.add(fact)
             if no_progress_streak:
                 no_progress_events += 1
+            step_results.append({'step_index': step_index, 'tool': selected_tool, 'status': 'executed'})
+            step_index += 1
             if no_progress_streak >= self.max_no_progress:
                 stop = 'environment_no_progress'
+                break
+            if step_index == len(tool_plan):
+                stop = 'done'
                 break
         return {
             'id': row['id'], 'transcript': transcript, 'tool_calls': env.get_tool_calls(),
             'state_hash': env.get_state_hash(), 'stop_reason': stop, 'decisions': len(trace),
-            'selected_tools': selected_tools, 'planner_calls': 1, 'caller_calls': caller_calls,
+            'tool_plan': tool_plan, 'selected_tools': list(dict.fromkeys(tool_plan)),
+            'plan_step_count': len(tool_plan), 'processed_steps': step_index,
+            'skipped_steps': sum(s['status'] == 'skipped' for s in step_results),
+            'step_results': step_results, 'planner_calls': 1, 'caller_calls': caller_calls,
             'llm_calls': len(prompt_counts), 'tool_iterations': len(env.get_tool_calls()),
             'invalid_schema_proposals': invalid, 'parse_errors': parse_errors,
             'tool_failures': failures, 'no_progress_events': no_progress_events,

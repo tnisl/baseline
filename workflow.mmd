@@ -1,10 +1,16 @@
 flowchart TD
-    I[Request + context + history + catalog] --> P[Planner: select tool set once]
-    P --> S[Lock selected set]
-    S --> C1[Caller step 1: tool + arguments + values]
-    C1 --> E1[env.validate then env.call]
-    E1 -->|success| C2[Caller next step uses prior env results]
-    C2 --> E2[env.validate then env.call]
-    E2 --> N[Continue forward until done or ask]
-    E1 -->|error| X[Stop sample]
-    E2 -->|error| X
+    I[Request + context + history + catalog] --> P[Planner: ordered tool list, once]
+    P --> L[Code keeps plan order and repeated tool slots]
+    L --> N{Slots remaining?}
+    N -->|no| D[Stop: done / plan exhausted]
+    N -->|yes| C[Caller: current tool schema, select args and values]
+    C -->|call arguments| V[env.validate]
+    V -->|valid and within budget| E[env.call: tool name fixed by plan]
+    E -->|success: actual observation| A[Advance one slot]
+    A --> N
+    C -->|skip: branch inapplicable| A
+    C -->|ask params for current tool| Q[sys.ask_missing_info then stop]
+    C -->|blocked| B[Stop: caller_blocked]
+    V -->|invalid| X[Stop: failure]
+    E -->|failure or done=false| X
+    E -->|duplicate / no progress / budget| X

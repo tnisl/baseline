@@ -1,114 +1,160 @@
-# Baseline v5: planner chọn tập tool → caller tạo lệnh gọi đầy đủ
+# Baseline v5 — planner chọn tool và thứ tự → caller điền arg + value
 
-V5 có **hai loại node Qwen**:
+V5 được viết lại với hai vai trò dùng cùng Qwen checkpoint:
 
-1. **Planner** chạy một lần, chọn tập tool cho toàn bộ yêu cầu.
-2. **Caller** chọn tool tiếp theo trong tập, đồng thời chọn field và điền value trong một JSON output.
+1. **Planner chạy một lần**, chọn danh sách tool theo thứ tự cho toàn bộ yêu cầu.
+2. **Caller chạy theo từng vị trí**, chọn arguments và values cho tool mà planner đã ấn định.
 
-Không còn node argument selector/value selector riêng. Không có reason/note/issue/goal, reviewer, reflector, replan hoặc retry. Feedback chỉ từ ToolEnv thật. V2/v3/v4 được giữ nguyên; v5 không import các folder đó.
+Code giữ nguyên thứ tự, không sort hay deduplicate danh sách. Caller không chọn lại tool và không trả `done`. Kết quả ToolEnv của bước trước cung cấp dữ kiện cho bước sau. Không có summarizer, reviewer, replan hoặc retry; không sinh reason/note/issue hay instruction ở cấp điều khiển. Nội dung tin nhắn/ghi chú trong arguments vẫn là dữ liệu tác vụ được phép sinh.
+
+Bản v5 trước là **tập tool không thứ tự**, caller tự chọn tool tiếp theo. Contract cũ đã được thay thế; output cũ có `name` hoặc `done` từ caller sẽ bị từ chối. Các baseline khác được giữ nguyên và không được import làm dependency.
 
 ## Workflow
 
 ```mermaid
 flowchart TD
-    I[Request + context + history + catalog] --> P[Planner: chọn tập tool một lần]
-    P --> S[Code khóa tập tool]
-    S --> C1[Caller bước 1: tool + arguments + values]
-    C1 --> E1[env.validate rồi env.call]
-    E1 -->|thành công| C2[Caller bước tiếp theo, nhận dữ kiện env đã có]
-    C2 --> E2[env.validate rồi env.call]
-    E2 --> N[Tiếp tục theo chiều tiến đến done hoặc ask]
-    E1 -->|lỗi| X[Dừng mẫu]
-    E2 -->|lỗi| X
+    I[Request + context + history + catalog] --> P[Planner: danh sách tool có thứ tự, một lần]
+    P --> L[Code giữ nguyên plan và con trỏ bước]
+    L --> C[Caller: schema tool hiện tại → arg + value]
+    C -->|call| V[env.validate rồi env.call]
+    V -->|thành công: observation thật| A[Tăng con trỏ một bước]
+    C -->|skip nhánh không áp dụng| A
+    A --> N{Còn bước?}
+    N -->|có| C
+    N -->|không| D[Stop: done / hết plan]
+    C -->|ask field của tool hiện tại| Q[sys.ask_missing_info rồi dừng]
+    C -->|blocked| B[Stop: caller_blocked]
+    V -->|lỗi hoặc guard/budget| X[Dừng mẫu]
 ```
 
-**Tập tool không có thứ tự.** Mảng output của planner chỉ là cách biểu diễn tập; code kiểm không trùng và sắp tên theo thứ tự chữ cái trước khi chuyển cho caller. Caller tự quyết định thứ tự thực thi theo dữ kiện runtime. Có thể dùng cùng một tool nhiều lần cho các đối tượng khác nhau, hoặc không dùng những tool thuộc nhánh điều kiện không áp dụng.
+Mỗi phần tử `tools` là **một vị trí gọi**, nên tên có thể lặp khi cần xử lý nhiều đối tượng. Code chỉ tăng `step_index` sau call thành công hoặc skip. Không được gọi nhiều lần ngoài các slot planner đã tạo.
 
-V5 thực thi nhiều bước: một lượt caller phát ra một lệnh, kết quả thành công cung cấp dữ kiện cho lượt tiếp theo. Đây không phải sinh tất cả arguments trước khi lookup chạy. Không có cạnh quay về planner và không có bước chạy lại để sửa một lệnh thất bại. Nếu muốn planner quyết định sẵn thứ tự thì đó là biến thể khác với tập tool ở đây.
+Với nhánh runtime, planner đặt lookup trước các bước phụ thuộc và có thể đưa các bước của cả hai nhánh vào plan. Caller dùng kết quả thật để thực hiện nhánh áp dụng và skip nhánh còn lại. Plan chỉ chứa tên tool, không có biểu thức điều kiện hay mô tả bước; diễn giải đối tượng/nhánh vẫn là trách nhiệm của model từ request và trajectory.
 
-## Input và output hai node
+## Contract hai node
 
-Prompt ở `agent.py`, schema decoder ở `output_contracts.py`, thực thi ở `agent_pipeline.py`.
+Prompt ở [agent.py](agent.py), schema decoder ở [output_contracts.py](output_contracts.py), điều phối ở [agent_pipeline.py](agent_pipeline.py).
 
 Input chung:
 
-| Field | Nội dung |
+| Field | Format và ý nghĩa |
 |---|---|
-| `request` | Transcript hiện tại; workflow mode dùng gold text, baseline mode dùng ASR |
-| `context` | Thời gian, múi giờ, hồ sơ được cấp; bỏ installed_apps/state nội bộ |
-| `history` | Ngữ cảnh hội thoại/tool results ban đầu, không tự phát lại nhiệm vụ cũ |
-| `remaining_tool_calls` | Số lần env.call còn lại; không phải số tên tool tối đa trong tập |
+| `request` | String: yêu cầu hiện tại; gold text ở workflow mode, ASR text ở baseline mode |
+| `context` | Object: thời gian, múi giờ, hồ sơ được cấp; loại `installed_apps` và state bên trong nó |
+| `history` | Array: các lượt hội thoại/tool results trước request, không tự tạo lại nhiệm vụ cũ |
+| `remaining_tool_calls` | Integer: số env.call còn lại; skip không tiêu thụ ngân sách này |
 
-Không đưa label, gold calls, final_state, kết quả tool tương lai hoặc lời tự đánh giá của Qwen vào prompt. Tên tool khả dụng được lấy từ app được cấp; state ẩn không được dùng để điền value.
+Không đưa label/gold calls/final_state hoặc observation tương lai vào model. Catalog chỉ lấy tên tool thuộc app được cấp. Các metric dùng nhãn chỉ chạy offline sau inference.
 
-### Planner
-
-Input thêm `available_tools`: catalog rút gọn gồm tên/kind/description/input_fields/required/x-one-of/returns. Planner không nhận feedback runtime vì chỉ chạy trước lần gọi tool đầu tiên.
-
-Output duy nhất:
-
-```json
-{"tools":["<tên tool khả dụng>"]}
-```
-
-Hoặc `{"tools":[]}` khi request không cần tool. Tập rỗng làm code dừng với done, không gọi caller.
-
-Planner phải chọn đủ lookup và hành động cần thiết. Khi điều kiện runtime chưa biết, có thể chọn tool cho các nhánh hợp lệ; caller chỉ thực hiện nhánh được thỏa mãn. Mỗi tên chỉ xuất hiện một lần, không có thứ tự/argument/value/task description. Không trả ask/done riêng ở node này.
-
-### Caller
+### Planner — chọn danh sách và thứ tự
 
 Input thêm:
 
-- `selected_tools`: tập đã khóa từ planner, không phải thứ tự gọi.
-- `available_tools`: schema đầy đủ của chính tập đó; không có schema của tool ngoài tập.
-- `env_feedback`: danh sách các lần validate/call đã diễn ra thành công trước lượt này, giữ nguyên response thật.
+- `available_tools`: catalog rút gọn với name/kind/description/input_fields/required/x-one-of/returns.
+- `max_plan_steps`: số slot tối đa, độc lập với budget env.call và budget tổng requests.
 
-Caller trả một trong ba dạng:
-
-```json
-{"type":"call","name":"<tool trong tập>","arguments":{"<input field>":"<value đúng type>"}}
-```
+Planner chưa nhận env_feedback vì chỉ chạy trước lần gọi tool đầu tiên. Output:
 
 ```json
-{"type":"ask","tool_name":"<tool đích trong tập>","params":["<tên field thật>"]}
+{"tools":["<tool ở bước đầu>","<tool ở bước tiếp theo>"]}
 ```
+
+Hoặc:
 
 ```json
-{"type":"done"}
+{"tools":[]}
 ```
 
-Caller tự điền tất cả required, chọn đủ một nhóm x-one-of (OR giữa nhóm, AND trong nhóm), thêm optional cần cho yêu cầu. Không có `selected_arguments`, `argument_reasons` hoặc `value_reasons`; code không tự sinh value cho required. Tool không có tham số dùng arguments={}.
+Chỉ một key `tools`; array có thứ tự, chỉ tên khả dụng, được lặp. Không có argument/value/task description/reason. `sys.ask_missing_info` không nằm trong plan nghiệp vụ: caller có thể yêu cầu hỏi thông tin cho tool hiện tại qua contract riêng.
 
-Chưa biết giá trị cần thiết thì chọn lookup trong tập. Nếu hết lookup hữu ích hoặc mục tiêu chưa phân biệt được, dùng ask; không bịa value, không thêm issue. Ask được code chuyển thành sys.ask_missing_info, chỉ có tool_name và tên field, không có câu hỏi tự do.
+Plan rỗng dừng ngay, không gọi caller. Planner phải đặt lookup trước write và chọn đủ các hành động nối tiếp. Code không tự bổ sung tool còn thiếu.
 
-Caller chỉ done khi đã làm đủ hành động áp dụng, không phải khi đã dùng hết tập tool. Cần truyền nội dung tin nhắn/ghi chú thì chuỗi trong arguments vẫn được phép sinh, vì đó là dữ liệu tác vụ; chỉ loại bỏ lời tự giải thích của agent.
+### Caller — chỉ điền cho tool hiện tại
 
-## Contract và quy tắc dừng
+Input thêm:
 
-- Decoder vLLM mặc định dùng guidance. Schema call ràng buộc tên tool với **đúng arguments của tool đó**, đóng các field ngoài schema, required/type/enum và nhóm x-one-of. Không dùng uniqueItems không được backend hỗ trợ; kiểm trùng bằng Python.
-- Code kiểm toàn bộ JSON, key trùng, NaN/Infinity, tên tool ngoài tập, argument ngoài schema và key giải thích ngoài contract.
-- `env.validate` luôn chạy trước env.call. Lỗi validate dừng với validation_failed; không thực thi lệnh đó.
-- Env.call trả ok=false hoặc done=false thì dừng với tool_failed; ok=true/done=false không bị coi là thành công.
-- Không có retry, sửa arg/value, mở rộng tập hoặc gọi lại planner sau lỗi. Response lỗi nằm trong trace; vì mẫu dừng nên không có lượt caller tiếp theo nhận lỗi đó.
-- Có budget tổng số lượt LLM/tool, dừng read lặp và chặn write giống hệt đã thành công. Local diagnostic là log code, không giả làm feedback env.
-- Sau khi hết ngân sách env.call, caller vẫn có thể done. Nếu còn đề xuất call/ask thì code dừng tool_limit, không thực thi thêm. Không ép done bằng grammar để che tác vụ chưa xong.
+| Field | Format và ý nghĩa |
+|---|---|
+| `tool_plan` | Array string: toàn bộ danh sách gốc, giữ cả thứ tự và phần tử lặp |
+| `step_index` | Integer từ 0: vị trí hiện tại |
+| `selected_tool` | Object: schema đầy đủ của đúng `tool_plan[step_index]`; không gửi full catalog cho caller |
+| `env_feedback` | Array các response thật của env.validate/env.call đã diễn ra, theo thứ tự |
+| `step_results` | Array metadata `{step_index, tool, status}` do code ghi; status là executed/skipped |
 
-Feedback chuyển sang lượt sau có dạng:
+`step_results` chỉ là tiến độ điều phối, không phải bằng chứng về giá trị/nhánh. Một skip do model chọn không trở thành observation môi trường. Kết quả call gốc nằm trong env_feedback, không được thay bằng lời tóm tắt của model.
+
+Caller trả đúng một trong bốn dạng:
 
 ```json
-{"stage":"validate hoặc call","tool":"<tool>","arguments":{},"response":{}}
+{"type":"call","arguments":{"<input field>":"<value đúng type>"}}
 ```
 
-Lỗi hạ tầng/grammar/context vượt ngân sách làm experiment aborted và không xuất summary thành công giả. Khi context dài, bỏ history cũ rồi feedback cũ, giữ request/schema/tập tool và feedback mới nhất; context_trimmed ghi nhận việc mất ngữ cảnh.
+Không có field cần truyền:
 
-## Chạy Kaggle
+```json
+{"type":"call","arguments":{}}
+```
 
-Mở `kaggle_runner.ipynb`, bật GPU/Internet và attach dữ liệu cùng thư mục baseline_v5. Mặc định MODE=workflow, 50 mẫu, workers=1. Để lấy số liệu theo batch:
+Nhánh không áp dụng hoặc chính hành động đã hoàn tất:
+
+```json
+{"type":"skip"}
+```
+
+Thiếu hoặc mơ hồ input cần thiết:
+
+```json
+{"type":"ask","params":["<input field thật của tool hiện tại>"]}
+```
+
+Không thể xử lý đúng bước hiện tại, không có field phù hợp để hỏi:
+
+```json
+{"type":"blocked"}
+```
+
+- **call:** code tự gắn `name=tool_plan[step_index]`. Caller chọn tất cả required, đủ ít nhất một nhóm x-one-of (OR giữa các nhóm, AND trong nhóm), optional cần thiết và values. Không tự thêm default hay filter làm đổi phạm vi.
+- **skip:** tăng con trỏ, không gọi env, không tạo response giả. Không được dùng skip để che thiếu dữ kiện hoặc nhảy tới lookup đặt sau.
+- **ask:** code gắn `tool_name` bằng tool hiện tại rồi gọi sys.ask_missing_info thật. params chỉ chứa tên field hợp lệ, không trùng, không rỗng. Sau ask, mẫu dừng chờ user.
+- **blocked:** dừng `caller_blocked`, không thực thi và không quay lại planner.
+
+Không cho phép `name`, `tool_name`, `done`, `reason`, `note`, `issue`, `instruction` ở cấp điều khiển của caller. Nếu có field nghiệp vụ tên note/name trong schema tool, nó vẫn được phép ở **bên trong arguments**.
+
+## Kiểm tra và dừng
+
+Decoder vLLM mặc định dùng guidance. Schema caller được tạo riêng cho tool hiện tại, ràng buộc required/type/enum/x-one-of và đóng field ngoài schema. Code kiểm JSON đầy đủ, key trùng, NaN/Infinity, tên tool lạ, độ dài plan và field ask.
+
+Sau call:
+
+1. env.validate trước khi thực thi; lỗi dừng `validation_failed`.
+2. Chặn write giống hệt một write đã thành công.
+3. env.call thực thi; ok=false hoặc done=false dừng `tool_failed`.
+4. Call thành công cung cấp response thật và chuyển slot; read lặp bị giới hạn bởi guard.
+
+Hết danh sách dừng `done` bằng code, **không có lượt Qwen riêng để quyết định done**. Đây là hoàn tất duyệt plan, không phải verifier chứng minh đã làm đủ request. Planner bỏ sót một hành động thì vẫn có thể hết plan; caller skip sai cũng có thể gây thiếu việc.
+
+Budgets:
+
+- `--max-plan-steps` (24): giới hạn số slot đầu ra planner; có thể gồm slot sẽ skip.
+- `--max-tool-calls` (10): tổng env.call thực thi, kể cả ask; validate/skip không tính.
+- `--max-decisions` (24): tổng planner + caller requests. Budget này có thể dừng trước khi hết plan.
+- `--max-no-progress` (2): giới hạn read lặp sau khi đã có cùng observation.
+
+Caller vẫn được xét skip khi env.call budget bằng 0. Nếu còn cần call/ask thì code dừng `tool_limit`, không ép skip hoặc plan rỗng bằng grammar. Lỗi hạ tầng/grammar/context vượt giới hạn làm experiment aborted, không tạo summary thành công giả.
+
+Khi prompt dài, code bỏ history cũ rồi feedback cũ, giữ request, plan, schema hiện tại và response mới nhất; `context_trimmed` ghi nhận mất ngữ cảnh. Không dùng bộ tóm tắt sinh bởi Qwen.
+
+## Chạy Kaggle và CLI
+
+Mở [kaggle_runner.ipynb](kaggle_runner.ipynb), bật GPU/Internet, attach dữ liệu và toàn bộ baseline_v5. Notebook đã thêm budgets cho ordered plan:
 
 ```python
 MODE = "workflow"
 INFERENCE_WORKERS = 4
 VLLM_MAX_NUM_SEQS = INFERENCE_WORKERS
+MAX_PLAN_STEPS = 24
+MAX_TOOL_CALLS = 10
+MAX_DECISIONS = 24
 STRUCTURED_OUTPUTS = True
 SAVE_NODE_INPUTS = False
 ```
@@ -116,22 +162,27 @@ SAVE_NODE_INPUTS = False
 ```bash
 python baseline_v5/run.py --mode workflow --data-root train+public_test \
   --limit 50 --seed 42 --inference-workers 4 --vllm-max-num-seqs 4 \
-  --output-dir lifemate_baseline_v5
+  --max-plan-steps 24 --max-tool-calls 10 --max-decisions 24 \
+  --output-dir lifemate_baseline_v5_ordered
 ```
 
-Giữ ASR/workflow/baseline/all, run_one, batch inference và adapter từ v4. Không còn --plan-mode/--max-repairs vì không có lựa chọn replan/repair. Mỗi mẫu có ToolEnv/tập tool riêng; batch gom request sẵn sàng của planner/caller với prompt và schema riêng.
+Giữ các mode asr/workflow/baseline/all, run_one và batch inference. Dùng output-dir mới để không ghi đè report của v5 cũ. `run_config.json` và summary ghi `architecture=ordered_tool_plan_caller`, `tool_order=fixed_by_planner`, `caller_tool_choice=false` và workflow fingerprint.
 
-Workers=1 dùng để đo latency riêng; workers>1 đo throughput. So các phiên bản bằng cùng model, seed, sample IDs, budgets, GPU và worker settings. Chưa có kết quả GPU chứng minh v5 nhanh hoặc chính xác hơn.
+Mỗi mẫu giữ ToolEnv, plan, con trỏ và schema riêng. Batch chỉ gom các node requests đang sẵn sàng giữa các mẫu độc lập. workers=1 đo latency riêng; workers>1 đo throughput. Với N slot xử lý hết, cần 1 planner + N caller requests; không có lượt done cuối. Chưa có thực nghiệm GPU chứng minh tăng tốc hoặc độ chính xác.
 
-## Báo cáo và dữ liệu cho fine-tune
+## Report và dữ liệu huấn luyện
 
-- `run_config.json`: architecture=planner_tool_set_caller, seed, sample IDs, model/backend, fingerprint.
-- `traces.jsonl`: selected_tools, planner_calls/caller_calls và từng event plan/call. Không còn plan_mode, plans, replan, arg/val node output.
-- `cases.csv`/`summary.json`: số tool đã chọn, số lượt planner/caller/LLM, latency, token, hash và score proxy.
-- `tool_set_recall`: độ bao phủ **tên** tool trong nhãn train, không tính sys.ask_missing_info; bằng 1 nếu nhãn không có tool nghiệp vụ. Chỉ là diagnostic offline, không đánh giá đúng thứ tự/value, không gửi vào model. Tập lớn có thể recall cao nhưng vẫn gọi sai.
-- `analyze_results.ipynb`: đọc metric, các case và chi phí hai node.
+- Trace lưu planner_output, tool_plan, step_index, selected_tool, caller_output, action do code ghép và response thật.
+- `selected_tools` vẫn được lưu như tập tên duy nhất, giữ thứ tự xuất hiện đầu, để đọc thống kê coverage; **không dùng nó để điều khiển execution**.
+- `plan_step_count`: số slot, tính phần tử lặp.
+- `processed_steps`: số slot đã call thành công hoặc skip; `skipped_steps`: phần đã skip.
+- `tool_set_recall`: coverage tên tool nghiệp vụ gold, bỏ qua thứ tự/số lần.
+- `tool_order_recall`: độ dài LCS giữa tool_plan và gold tool-name sequence / số gold calls nghiệp vụ, có tính lặp.
+- `tool_plan_exact_match`: chuỗi tên tool đúng bằng gold nghiệp vụ.
 
-Nếu cần tạo dữ liệu huấn luyện, bật SAVE_NODE_INPUTS hoặc --save-node-inputs. Mỗi node_output sẽ có input_messages chính xác đã gửi model và text output gốc. Mặc định tắt vì có thể làm trace rất lớn. Chỉ lưu dữ liệu, không tự lọc trajectory, tạo nhãn hay fine-tune model; cần verifier phù hợp ở pipeline huấn luyện sau này.
+Các diagnostic plan dùng nhãn train chỉ tính offline, không đưa vào prompt. Plan chứa cả nhánh runtime có thể không exact-match gold dù nhánh thực thi đúng. Thứ tự read khác nhưng tương đương cũng có thể giảm diagnostic; không dùng nó thay score_proxy/hash/audit nghiệp vụ. Proxy vẫn là metric local xấp xỉ, không phải điểm leaderboard.
+
+[analyze_results.ipynb](analyze_results.ipynb) hiển thị các metric mới và trace hai node. Bật `--save-node-inputs` để lưu input_messages chính xác; không tự tạo nhãn, lọc trajectory hoặc fine-tune.
 
 ## Kiểm thử và giới hạn
 
@@ -140,6 +191,12 @@ python -m pip install matplotlib jsonschema 'llguidance>=1.3,<1.4'
 python -m unittest discover -s baseline_v5 -p 'test_*.py' -v
 ```
 
-Tests CPU dùng model giả lập và ToolEnv thật, gồm: planner chỉ một lượt, pool không có thứ tự, caller điền toàn bộ lệnh và dùng lookup, chặn tool ngoài pool, required/x-one-of, lỗi dừng không retry, ask/done, budget, batch isolation, schema compilation và report writer. Tests không phải kết quả chất lượng Qwen.
+Tests CPU dùng model giả lập và ToolEnv thật, gồm thứ tự không bị sort, tool lặp, caller không đổi tool/done sớm, lookup trước value, skip/ask/blocked, required/x-one-of, budgets, lỗi không retry, batch isolation, decoder compilation và report. Đây là kiểm tra implementation, không phải kết quả chất lượng Qwen.
 
-Planner chọn thiếu tool thì caller không thể tự bổ sung. Caller phải làm nhiều việc hơn v3/v4, nên có thể tăng lỗi chọn field/value hoặc done sớm. Schema hợp lệ không chứng minh ID, nhánh, nội dung hoặc optional đúng ý user. Duplicate guard cũng không phân biệt được yêu cầu gửi lặp có chủ đích với lặp do lỗi. Các giới hạn này cần đo bằng thực nghiệm; thêm node hoặc vòng phản hồi không nằm trong v5 hiện tại.
+Giới hạn của plan cố định:
+
+- Chọn sai/thiếu tool hoặc thứ tự sai thì caller không thể chèn lookup hay replan.
+- Số đối tượng chỉ biết sau lookup có thể vượt số slot planner đã tạo; chưa hỗ trợ vòng lặp/foreach.
+- Không có nhãn mục tiêu hoặc guard có cấu trúc cho từng slot; các slot trùng tool ở nhiều nhánh có thể mơ hồ.
+- Skip và values vẫn do model quyết định. Schema hợp lệ không chứng minh đúng người, ID, điều kiện hay nội dung; env cũng có thể chấp nhận một ID sai.
+- Không có recovery sau lỗi env, và hết plan không chứng minh đủ ý định user.
