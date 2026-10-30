@@ -1,0 +1,11 @@
+flowchart TD
+    I[Request + context + history + catalog] --> P[Planner: next step]
+    P -->|next=caller and short instruction| C[Caller: tool name and complete arguments]
+    C --> V[env.validate]
+    V -->|valid| T[env.call]
+    T -->|success: actual observation| P
+    P -->|next=done| S[Stop]
+    P -->|next=give_up| S
+    V -->|invalid| S
+    T -->|failure or done=false| S
+    T -->|sys.ask_missing_info| S

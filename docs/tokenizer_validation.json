@@ -1,0 +1,11 @@
+{
+  "tokenizer": "Qwen/Qwen3-4B-Instruct-2507",
+  "samples": 50,
+  "seed": 42,
+  "scope": "Initial prompts only; no generation or GPU inference",
+  "prompt_tokens_max": {
+    "plan": 6674,
+    "call": 6958
+  },
+  "initial_prompts_trimmed": 0
+}

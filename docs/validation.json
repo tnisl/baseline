@@ -1,0 +1,30 @@
+{
+  "validated_at_utc": "2026-10-30T15:40:33.647827+00:00",
+  "workflow_sha256": "89839a803238ed833aa89adbccdb96563def82873413477b6b5a4ea4b8c8af4f",
+  "architecture": "step_planner_caller",
+  "validation_kind": "CPU implementation tests with scripted model, real ToolEnv and actual guidance compiler",
+  "tests_run": 27,
+  "tests_passed": 27,
+  "tests_failed": 0,
+  "tests_skipped": 0,
+  "catalog_tools": 147,
+  "guidance_schema_variants_compiled": 148,
+  "python_ast": "passed",
+  "notebook_code_ast": "passed",
+  "notebook_configuration_from_notebooks_cwd": "passed",
+  "entry_points_from_other_cwd": "passed",
+  "notebook_saved_outputs": "none",
+  "tokenizer_prompt_check": {
+    "tokenizer": "Qwen/Qwen3-4B-Instruct-2507",
+    "samples": 50,
+    "seed": 42,
+    "scope": "Initial prompts only; no generation or GPU inference",
+    "prompt_tokens_max": {
+      "plan": 6674,
+      "call": 6958
+    },
+    "initial_prompts_trimmed": 0
+  },
+  "qwen_gpu_inference_run": false,
+  "quality_or_speed_improvement_claimed": false
+}
