@@ -107,6 +107,10 @@ def done_evidence_error(candidate, goals, observations):
             return "Goal hoàn tất cần index của kết quả tool thành công."
         goal = goal_map[goal_id]
         observation = observations[index]
+        from semantic_checks import goal_result_error
+        semantic_error = goal_result_error(goal["task"], observation)
+        if semantic_error:
+            return semantic_error
         if observation.get("kind") != goal["kind"]:
             return "Goal cần kết quả tool đúng loại read/write."
     if len(set(completed.values())) != len(completed):
@@ -253,7 +257,13 @@ class Agent(PromptAgent):
                 row, transcript, observations, feedback, phase=phase,
                 planner_goals=goals, **kwargs)
             any_trim |= trimmed
-            output = self.llm.complete(messages, max_new_tokens=self.max_new_tokens)
+            options = {}
+            if getattr(self.llm, "structured_outputs", False):
+                from output_contracts import node_schema
+                options["output_schema"] = node_schema(phase, specs, goals=goals,
+                    selected_tool=kwargs.get("selected_tool"),
+                    selected_arguments=kwargs.get("selected_arguments"))
+            output = self.llm.complete(messages, max_new_tokens=self.max_new_tokens, **options)
             prompt_tokens_each.append(output["prompt_tokens"])
             generated_total += output["generation_tokens"]
             llm_latency += output["latency_s"]
@@ -317,6 +327,30 @@ class Agent(PromptAgent):
             choice = (candidate if isinstance(candidate, dict)
                       and candidate.get("type") == "revise"
                       else parse_action(output["text"]))
+            if choice and choice.get("type") == "done":
+                completed = choice.get("completed_goals")
+                skipped = choice.get("skipped_goals", {})
+                if isinstance(completed, dict) and isinstance(skipped, dict):
+                    normalized = {k: int(v) if isinstance(v, str) and v.isdecimal() else v
+                                  for k, v in completed.items() if not (v is None and k in skipped)}
+                    if normalized != completed:
+                        event["normalized_done"] = {"before": completed, "after": normalized}
+                    choice["completed_goals"] = normalized
+            if choice and choice.get("type") == "revise" and isinstance(choice.get("removed_goals"), dict):
+                new_ids = {g.get("id") for g in choice.get("goals", []) if isinstance(g, dict)}
+                choice["removed_goals"] = {k: v for k, v in choice["removed_goals"].items() if k not in new_ids}
+            # A missing reference may trigger a read call, never an ask to the lookup tool.
+            if choice and choice.get("type") == "ask" and feedback and feedback.get("suggested_lookup") in specs:
+                lookup = feedback["suggested_lookup"]
+                if choice.get("tool_name") in (lookup, feedback.get("tool")):
+                    event["recovery_override"] = {"ask": choice, "lookup": lookup}
+                    choice = {"type": "call", "name": lookup,
+                              "tool_reason": "Tra dữ kiện còn thiếu", **({"goals": choice["goals"]} if "goals" in choice else {})}
+            elif choice and choice.get("type") == "ask" and feedback and feedback.get("issue"):
+                blocked = feedback["issue"]
+                target = feedback.get("tool")
+                if target in specs and blocked.get("type") == "ambiguous_target":
+                    choice = {**choice, "tool_name": target, "params": blocked["fields"]}
             event["action"] = choice
             if choice is None:
                 parse_total += 1
@@ -648,6 +682,13 @@ class Agent(PromptAgent):
             field, reason = intent_value_error(name, args, transcript)
             if field:
                 if reject(event, "value_selection", "intent_value_mismatch",
+                          issue={"type": "missing_data", "fields": [field], "reason": reason}):
+                    break
+                continue
+            from semantic_checks import semantic_write_error
+            field, reason = semantic_write_error(name, args, transcript, row, observations)
+            if field:
+                if reject(event, "validation", "semantic_write",
                           issue={"type": "missing_data", "fields": [field], "reason": reason}):
                     break
                 continue

@@ -25,7 +25,7 @@ def workflow_sha256():
     """Fingerprint prompt assembly, pipeline and shared behavior for comparisons."""
     here = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    for name in ("agent.py", "agent_pipeline.py", "pipeline_rules.py", "evidence_rules.py", "intent_contract.py", "common.py"):
+    for name in ("agent.py", "agent_pipeline.py", "pipeline_rules.py", "evidence_rules.py", "intent_contract.py", "common.py", "models.py", "output_contracts.py", "batch_inference.py", "semantic_checks.py"):
         digest.update(name.encode("utf-8"))
         digest.update((here / name).read_bytes())
     return digest.hexdigest()
@@ -107,16 +107,18 @@ def load_or_run_asr(rows, root, output_dir, model_id, batch_size, seed):
     return asr_experiment(rows, root, output_dir, model_id, batch_size, seed)
 
 
-def agent_experiment(rows, transcripts, root, output_dir, mode, agent, catalog, ToolEnv, asr_predictions=None):
+def agent_experiment(rows, transcripts, root, output_dir, mode, agent, catalog, ToolEnv, asr_predictions=None, workers=1):
     run_dir = Path(output_dir) / mode
     run_dir.mkdir(parents=True, exist_ok=True)
     predictions_path = run_dir / "predictions.jsonl"
     traces_path = run_dir / "traces.jsonl"
     cases = []
+    experiment_start = time.perf_counter()
+    from batch_inference import iter_outcomes
     with predictions_path.open("w", encoding="utf-8") as predictions_file, \
          traces_path.open("w", encoding="utf-8") as traces_file:
-        for index, row in enumerate(rows, 1):
-            outcome = agent.run(row, transcripts[row["id"]])
+        outcomes = iter_outcomes(agent, rows, transcripts, workers)
+        for index, (row, outcome) in enumerate(zip(rows, outcomes), 1):
             prediction = {key: outcome[key] for key in ("id", "tool_calls", "state_hash")}
             predictions_file.write(dumps(prediction) + "\n")
             predictions_file.flush()
@@ -139,6 +141,10 @@ def agent_experiment(rows, transcripts, root, output_dir, mode, agent, catalog, 
                   f"hash={int(case['state_hash_match'])} calls={case['tool_count']}", end="", flush=True)
     print()
     summary = agent_summary(cases)
+    summary["experiment_wall_s"] = time.perf_counter() - experiment_start
+    summary["samples_per_second"] = len(cases) / max(summary["experiment_wall_s"], 1e-9)
+    summary["inference_workers"] = workers
+    summary["latency_note"] = "Concurrent latency includes batch queue time; use workers=1 for isolated latency."
     summary["mode"] = mode
     summary["model_id"] = agent.llm.model_id
     summary["llm_backend"] = getattr(agent.llm, "backend", "transformers")
@@ -217,6 +223,13 @@ def parse_args():
                         default="float16", help="Use float16 on Tesla T4")
     parser.add_argument("--vllm-use-cuda-graphs", action="store_true",
                         help="Faster on some GPUs, but reserves extra VRAM")
+    parser.add_argument("--inference-workers", type=int, default=1,
+                        help="Independent samples in flight; >1 requires vLLM")
+    parser.add_argument("--vllm-max-num-seqs", type=int, default=None,
+                        help="Defaults to inference-workers")
+    parser.add_argument("--batch-wait-ms", type=float, default=10)
+    parser.add_argument("--no-structured-outputs", action="store_true",
+                        help="Disable per-node constrained JSON generation for A/B")
     parser.add_argument("--asr-batch-size", type=int, default=1)
     parser.add_argument("--max-tool-calls", type=int, default=10)
     parser.add_argument("--max-decisions", type=int, default=24)
@@ -244,6 +257,13 @@ def main():
             raise ValueError("--vllm-gpu-memory-utilization must be in (0, 1]")
         if args.vllm_tensor_parallel_size < 1:
             raise ValueError("--vllm-tensor-parallel-size must be >= 1")
+    if args.inference_workers < 1 or args.batch_wait_ms < 0:
+        raise ValueError("workers must be >=1 and batch wait >=0")
+    if args.inference_workers > 1 and args.llm_backend != "vllm":
+        raise ValueError("Concurrent inference requires vLLM")
+    args.vllm_max_num_seqs = args.vllm_max_num_seqs or args.inference_workers
+    if args.vllm_max_num_seqs < args.inference_workers:
+        raise ValueError("max-num-seqs must be >= inference-workers")
     root = find_root(args.data_root)
     if args.sample_id:
         rows = [row for row in load_train(root, 0, args.seed)
@@ -286,11 +306,16 @@ def main():
             enforce_eager=not args.vllm_use_cuda_graphs,
             seed=args.seed,
             temperature=args.llm_temperature,
+            max_num_seqs=args.vllm_max_num_seqs,
+            structured_outputs=not args.no_structured_outputs,
         )
     else:
         from models import Qwen
         llm = Qwen(args.llm_model, temperature=args.llm_temperature,
                    seed=args.seed)
+    if args.inference_workers > 1:
+        from batch_inference import BatchedLLM
+        llm = BatchedLLM(llm, args.inference_workers, args.batch_wait_ms)
     catalog = load_catalog(root)
     ToolEnv = import_toolenv(root)
     agent = Agent(
@@ -303,13 +328,15 @@ def main():
     if args.mode in ("workflow", "all"):
         workflow_cases = agent_experiment(
             rows, {row["id"]: row["audio_text"] for row in rows},
-            root, output_dir, "workflow_gold", agent, catalog, ToolEnv)
+            root, output_dir, "workflow_gold", agent, catalog, ToolEnv, workers=args.inference_workers)
     if args.mode in ("baseline", "all"):
         baseline_cases = agent_experiment(
             rows, {row["id"]: asr_predictions[row["id"]]["text"] for row in rows},
-            root, output_dir, "baseline_asr", agent, catalog, ToolEnv, asr_predictions)
+            root, output_dir, "baseline_asr", agent, catalog, ToolEnv, asr_predictions, workers=args.inference_workers)
     if workflow_cases is not None and baseline_cases is not None:
         compare_runs(output_dir, workflow_cases, baseline_cases, asr_predictions, rows)
+    if args.inference_workers > 1:
+        llm.close()
     print(f"Finished. Results: {output_dir}")
 
 

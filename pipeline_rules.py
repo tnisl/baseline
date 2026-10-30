@@ -110,7 +110,8 @@ def _requested_bill_type(request):
 
 def value_hints(tool_name, request, row, observations, spec=None):
     """Only facts with an unambiguous deterministic derivation are hinted."""
-    hints = {}
+    from semantic_checks import temporal_values
+    hints = temporal_values(tool_name, request, row, observations)
     text = request.casefold()
     if tool_name == "weather.get_forecast" and re.search(r"(?i:\b(?:ngày|sáng|tối|chiều|trưa)\s+mai\b)|(?i:^\s*mai\b)", request):
         from datetime import datetime, timedelta
@@ -347,6 +348,14 @@ def repeated_write(prior, name, arguments):
     old = prior["arguments"]
     if old == arguments:
         return True
+    if name in ('email.reply', 'sms.send', 'chat_ott.send_message'):
+        identity = {'email.reply': ('email_id',), 'sms.send': ('contact_id', 'phone_number'),
+                    'chat_ott.send_message': ('chat_id',)}[name]
+        content = 'body' if name == 'email.reply' else 'content'
+        if (any(old.get(k) is not None for k in identity)
+                and all(old.get(k) == arguments.get(k) for k in identity)
+                and folded_tokens(old.get(content, '')) == folded_tokens(arguments.get(content, ''))):
+            return True
     identity = {
         "appliances.start_cycle": ("appliance_id",),
         "medication.add": ("name",),

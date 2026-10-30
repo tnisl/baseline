@@ -121,12 +121,13 @@ class QwenVLLM:
                  max_model_len=12288, gpu_memory_utilization=0.82,
                  tensor_parallel_size=1, enforce_eager=True,
                  attention_backend="TRITON_ATTN", dtype="float16", seed=42,
-                 temperature=0.7):
+                 temperature=0.7, max_num_seqs=1, structured_outputs=True):
         from vllm import LLM, SamplingParams
         self.model_id = model_id
         self.backend = "vllm"
         self.max_model_len = max_model_len
         self.SamplingParams = SamplingParams
+        self.structured_outputs = structured_outputs
         self.dtype = dtype
         self.temperature = temperature
         self.seed = seed
@@ -135,7 +136,7 @@ class QwenVLLM:
             model=model_id,
             dtype=self.dtype,
             max_model_len=max_model_len,
-            max_num_seqs=1,  # Tool-dependent steps are sequential.
+            max_num_seqs=max_num_seqs,
             max_num_batched_tokens=4096,
             enable_chunked_prefill=True,
             gpu_memory_utilization=gpu_memory_utilization,
@@ -157,20 +158,26 @@ class QwenVLLM:
     def count(self, messages):
         return len(self.encode(messages))
 
-    def complete(self, messages, max_new_tokens=256):
-        ids = self.encode(messages)
-        if len(ids) + max_new_tokens > self.max_model_len:
-            raise ValueError(
-                f"Prompt ({len(ids)}) + generation ({max_new_tokens}) exceeds "
-                f"vLLM max_model_len ({self.max_model_len})")
-        params = self.SamplingParams(
-            temperature=self.temperature, top_p=0.8, top_k=20,
-            seed=self.seed, max_tokens=max_new_tokens,
-        )
+    def complete(self, messages, max_new_tokens=256, output_schema=None):
+        return self.complete_batch([(messages, max_new_tokens, output_schema)])[0]
+
+    def complete_batch(self, requests):
+        prompts, sampling, counts = [], [], []
+        for messages, limit, schema in requests:
+            ids = self.encode(messages)
+            if len(ids) + limit > self.max_model_len:
+                raise ValueError(f"Prompt ({len(ids)}) + generation ({limit}) exceeds context")
+            options = dict(temperature=self.temperature, top_p=0.8, top_k=20,
+                           seed=self.seed, max_tokens=limit)
+            if schema is not None and self.structured_outputs:
+                from vllm.sampling_params import StructuredOutputsParams
+                options["structured_outputs"] = StructuredOutputsParams(json=schema)
+            prompts.append({"prompt_token_ids": ids})
+            sampling.append(self.SamplingParams(**options))
+            counts.append(len(ids))
         start = time.perf_counter()
-        response = self.engine.generate(
-            {"prompt_token_ids": ids}, params, use_tqdm=False)[0]
+        responses = self.engine.generate(prompts, sampling[0] if len(sampling) == 1 else sampling, use_tqdm=False)
         elapsed = time.perf_counter() - start
-        completion = response.outputs[0]
-        return {"text": completion.text.strip(), "prompt_tokens": len(ids),
-                "generation_tokens": len(completion.token_ids), "latency_s": elapsed}
+        return [{"text": response.outputs[0].text.strip(), "prompt_tokens": count,
+                 "generation_tokens": len(response.outputs[0].token_ids),
+                 "latency_s": elapsed} for response, count in zip(responses, counts)]

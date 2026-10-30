@@ -2,6 +2,47 @@
 
 This folder is an independent experiment. It keeps PhoWhisper-medium, Qwen3-4B-Instruct-2507, vLLM/Transformers adapters, and the three v1 experiment modes. It writes to a separate output folder, so v1 results remain available for comparison.
 
+
+## Cập nhật từ batch 50 mẫu — 30/10/2026
+
+Vẫn **planner → argument selector → value selector → checker → tool**. Không thêm caller/reviewer, không fine-tune. Batch này là mốc trước sửa: proxy32.53%, hash23/50, mean47.94s; chưa có kết quả Qwen GPU sau thay đổi.
+
+- **Output contract:** vLLM mặc định dùng JSON Schema từng node (`output_contracts.py`), ràng buộc tên tool/field, kiểu value và các dạng action/issue. `--no-structured-outputs` để đối chứng. Đây là constrained generation, không chỉ parse JSON sau sinh; vẫn cần checker ngữ nghĩa. Transformers giữ text generation cũ.
+- **Planner và recovery:** prompt nhấn mạnh đầy đủ outcome/đối tượng, dùng observation hiện có, phân biệt call lookup với ask tool đích. Ask nhầm sang lookup khi feedback đã có suggested_lookup được chuyển thành call, ghi `recovery_override`. Ambiguity không còn lookup thì hỏi tool đích. Chuẩn hóa index số dạng string trong done và bỏ completed=null khi chính goal đó đã có skipped; không đoán index. Sửa kind/task cùng ID không dùng removed_goals; normalization và raw_output được giữ trong trace.
+- **Coverage/evidence:** thêm kiểm điều hòa, tác vụ đèn tức thời, thông báo chưa rõ kênh (chấp nhận SMS hoặc chat), automation và nhánh forecast→alarm. Goal có hành động rõ không được gắn tool khác; bill result phải khớp loại hóa đơn được goal nêu. Checklist chỉ là bộ quy tắc hữu hạn, không chứng minh hiểu mọi yêu cầu. Không coi tác vụ tự tắt đèn theo lịch là tắt ngay.
+- **Giá trị/nghiệp vụ:** `semantic_checks.py` kiểm end sau start dựa event đã đọc, khoảng học rõ sau câu sửa, phân biệt chuyển tiền với trả bill, chặn tạo lịch cho việc học đã diễn ra. Hint thời gian chỉ suy từ quan hệ duy nhất: thứ trong tuần/giờ họp, ngày trước chuyến bay trong SMS, nhắc rời trạm theo route đã có. Giữ timezone; không có đủ bằng chứng thì không tạo hint. TV không chọn kênh user đã loại vì vừa ghi. Guard không giải mọi dạng thời gian/phép tính tiếng Việt.
+- **Arg/val:** field chỉ ở cấp ngoài; cấu trúc mảng/object do val điền; issue không dùng field của tool trước. Các field lịch start/end cần đi cùng khi sửa khoảng giờ. Reason phải mô tả đúng value đã xuất, không tự sửa kết luận trong reason rồi để arguments cũ.
+- **Duplicate:** email/SMS/chat cùng đối tượng, nội dung chỉ khác hoa thường/dấu câu bị coi là gửi lặp. Nội dung thay đổi có ý nghĩa chưa bị mặc định gộp; không có bộ chứng minh tương đương ngữ nghĩa tổng quát.
+
+### Chạy batch để lấy kết quả nhanh trên Kaggle
+
+Trong `kaggle_runner.ipynb`:
+
+```python
+MODE = "workflow"          # thử workflow trước; all/baseline cũng hỗ trợ
+INFERENCE_WORKERS = 4       # mặc định 1; thử 2 nếu VRAM hạn chế
+VLLM_MAX_NUM_SEQS = INFERENCE_WORKERS
+BATCH_WAIT_MS = 10
+STRUCTURED_OUTPUTS = True
+VLLM_USE_CUDA_GRAPHS = False
+```
+
+`BatchedLLM` nhận yêu cầu node từ các mẫu đang chạy, gom thành một `LLM.generate(prompts, sampling_params)`; chỉ một thread sở hữu đường gọi engine. Mỗi mẫu có ToolEnv và biến trạng thái riêng. Có timeout gom batch nên mẫu cuối không chờ đủ batch. Prompt/schema/response được ghép đúng request; lỗi engine được truyền tới mọi caller trong batch. Không song song các bước phụ thuộc trong cùng một mẫu. Scheduler giữ kết quả theo thứ tự input và giới hạn số mẫu in-flight; chờ một mẫu chậm có thể làm batch chưa đầy.
+
+```bash
+python baseline_v2/run.py --mode workflow --data-root train+public_test --limit 50 \
+  --inference-workers 4 --vllm-max-num-seqs 4 --batch-wait-ms 10 \
+  --output-dir lifemate_baseline_v2_batch4
+```
+
+Batch chỉ hỗ trợ vLLM; `inference-workers=1` là đường chạy tuần tự. `max-num-seqs` phải >=workers. Summary có `experiment_wall_s`, `samples_per_second`, `inference_workers`. Latency từng mẫu trong batch bao gồm chờ scheduler/engine; không cộng các latency này để suy thời gian toàn batch. Đánh giá giới hạn30s bằng workers1 trên A30. Batch có thể đổi kết quả dù seed giống nhau; benchmark cùng model/dữ liệu/cấu hình. Chưa đo tốc độ trên T4/A30 ở môi trường này, chưa cam kết hệ số tăng tốc hoặc VRAM đủ cho4 mẫu. Nếu OOM giảm workers2 rồi1; re-upload toàn bộ folder để có các module mới.
+
+### Kiểm chứng bản cập nhật
+
+**126 test qua; 296 schema hợp lệ; 100 mẫu/230 gold calls không bị guard mới chặn.** Chi tiết: `validation_batch_contract.json`.
+
+Regression CPU gồm scheduler gom batch/thứ tự output/partial batch/exception, semantic guards, contract và các test cũ. Replay gold230 calls của100 mẫu từ hai seed qua guard mới không bị chặn; label chỉ dùng trong kiểm thử offline. JSON schemas toàn catalog được kiểm cấu trúc. Không thay thế chạy Qwen/vLLM thật: grammar compilation, hiệu năng GPU và cải thiện điểm cần xác nhận trên Kaggle. Các lỗi hiểu đầy đủ goal, nguồn mâu thuẫn và suy luận ngoài guard vẫn có thể xảy ra. Một test cũ dùng request gửi SMS nhưng chỉ script lookup đã được thu hẹp request thành lookup, đúng phạm vi unit test.
+
 ## Workflow đang chạy
 
 `run.py` dùng [agent_pipeline.py](agent_pipeline.py). Cốt lõi vẫn là **planner → argument selector → value selector → kiểm bằng code → gọi tool**; thông thường tối đa ba lượt Qwen cho mỗi tool call; sửa field cục bộ có thể thêm hai lượt, tối đa một lần cho mỗi bước. Không gọi reviewer. Ảnh mới: [workflow.png](workflow.png), [workflow.svg](workflow.svg); tạo lại bằng `generate_workflow.py`.

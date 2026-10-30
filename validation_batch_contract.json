@@ -1,0 +1,10 @@
+{
+  "workflow_sha256": "fc902c1c49542c88a9c20ed46939987148c320aad8de865d1711bd8bcd28c1d2",
+  "unit_tests_passed": 126,
+  "valid_json_schemas": 296,
+  "gold_replay_samples": 100,
+  "gold_calls": 230,
+  "new_guard_rejections": [],
+  "gpu_inference_tested": false,
+  "note": "Gold labels used only in offline validation; this is not a model accuracy or speed measurement."
+}

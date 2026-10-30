@@ -28,6 +28,8 @@ def intent_fields(name, request, spec):
         fields.add('temperature')
     if name == 'medication.log_taken' and re.search(r'\b(?:giờ|lúc|hồi)\b', text):
         fields.add('time')
+    if name == 'calendar.update_event' and re.search(r'sửa giờ|sửa.*giờ|dời|đổi.*giờ', text):
+        fields.update(('start', 'end'))
     if name == 'notes.create' and re.search(r'(?:đặt tên|tên là|ghi chú tên)', text):
         fields.add('title')
     return sorted(fields & set(spec.get('parameters', {}).get('properties') or {}))
@@ -71,6 +73,11 @@ def request_requirements(request, specs, observations, row=None):
         ('reminders.create', r'\bnhắc\s+(?:tôi|mình|anh|chị|cô|tui|tớ|em|con)\b'),
         ('notes.create', r'(?:tạo|lưu|ghi|chép).*ghi chú|ghi chú\s+(?:lại|giùm|giúp)'),
         ('home_automation.create_rule', r'tự\s+(?:bật|tắt).*(?:hằng|hàng|mỗi)\s+(?:ngày|tối|sáng)'),
+        ('alarm.update', r'mưa.*(?:dời|đổi).*báo thức'),
+        ('smart_home.climate_set', r'(?:bật|mở|chỉnh).*?(?:điều hoà|điều hòa|máy lạnh)'),
+        ('smart_home.light_set', r'(?:bật|mở|tắt|chỉnh).*?đèn'),
+        ('chat_ott.send_message', r'(?:nhắn|gửi).*?(?:zalo)|(?:zalo)\s+cho'),
+        ('home_automation.create_rule', r'(?:hằng|hàng|mỗi)\s+(?:ngày|tối|sáng).*?tự\s+(?:bật|tắt)'),
         ('household_chores.assign', r'(?:việc đi chợ|giặt|phơi).*giao|giao.*(?:việc|giặt|phơi|đi chợ)'),
     ]
     conditional = bool(re.search(r'\bnếu\b|\bthì\b|không đủ|còn thiếu|chưa tới', text))
@@ -79,6 +86,8 @@ def request_requirements(request, specs, observations, row=None):
     for tool, pattern in rules:
         match = re.search(pattern, text)
         if not match or tool not in specs:
+            continue
+        if tool == 'smart_home.light_set' and re.search(r'tự\s+(?:bật|tắt)|hẹn giờ', text) and not re.search(r'còn (?:bây )?giờ|ngay bây giờ', text):
             continue
         if tool == 'bill_payment.pay':
             sms = re.search(r'(?:nhắn|gửi)\s+(?:tin\s+)?sms', text)
@@ -97,13 +106,33 @@ def request_requirements(request, specs, observations, row=None):
         price = gold_condition(request, observations)
         if price is not None and tool in ('reminders.create', 'banking.transfer'):
             status = ('active' if price == (tool == 'reminders.create') else 'inactive')
-        output.append({'tool': tool, 'status': status, 'evidence': match.group(0)})
+        if tool in ('smart_home.climate_set', 'smart_home.light_set') and not re.search(r'\bnếu\b|còn đủ|không đủ', text):
+            status = 'active'
+        # Only resolve a weather branch when tomorrow's forecast is visible.
+        if tool == 'alarm.update':
+            forecasts = [f for o in observations if o['name'] == 'weather.get_forecast'
+                         and result_succeeded(o['result']) for f in o['result'].get('forecast', [])]
+            if len(forecasts) == 1 and isinstance(forecasts[0].get('rain'), bool):
+                status = 'active' if forecasts[0]['rain'] else 'inactive'
+        requirement = {'tool': tool, 'status': status, 'evidence': match.group(0)}
+        if tool == 'smart_home.climate_set':
+            temperature = re.search(r'(\d+)\s*độ', text)
+            if temperature:
+                requirement['arguments'] = {'temperature': int(temperature[1])}
+        output.append(requirement)
     targets = eligible_bill_targets(request, row, observations)
     if targets is not None and 'bill_payment.pay' in specs:
         output = [item for item in output if item['tool'] != 'bill_payment.pay']
         output.extend({'tool': 'bill_payment.pay', 'status': 'active',
                        'arguments': {'bill_id': bill_id}, 'evidence': 'Hóa đơn thỏa hạn và ngưỡng user yêu cầu'}
                       for bill_id in targets)
+    # Unspecified communication channel: require a message without guessing the channel.
+    if (re.search(r'\bnhắn\b', text) and not re.search(r'sms|zalo|email|mail', text)
+            and not conditional):
+        alternatives = [name for name in ('sms.send', 'chat_ott.send_message') if name in specs]
+        if alternatives:
+            output.append({'tool': alternatives[0], 'alternatives': alternatives,
+                           'status': 'active', 'evidence': 'Yêu cầu nhắn thông báo'})
     return output
 
 
@@ -111,12 +140,12 @@ def request_done_error(request, specs, observations, row=None):
     pending = []
     for requirement in request_requirements(request, specs, observations, row):
         if requirement['status'] == 'active' and not any(
-                item['name'] == requirement['tool'] and result_succeeded(item['result'])
+                item['name'] in requirement.get('alternatives', [requirement['tool']]) and result_succeeded(item['result'])
                 and item.get('effect_verified') is not False
                 and all(item.get('arguments', {}).get(k) == v for k, v in requirement.get('arguments', {}).items())
                 for item in observations):
             pending.append(requirement['tool'] + (':' + str(requirement['arguments']['bill_id'])
-                           if 'arguments' in requirement else ''))
+                           if 'bill_id' in requirement.get('arguments', {}) else ''))
     return ('Request còn kết quả chưa có bằng chứng: ' + ', '.join(pending)) if pending else None
 
 

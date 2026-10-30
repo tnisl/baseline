@@ -232,7 +232,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(outcome["trace"][0]["selected_arguments"], [])
 
     def test_required_only_tool_skips_argument_selector(self):
-        row = sample("train_0063")
+        row = {**sample("train_0063"), "audio_text": "Xem thông tin liên hệ Minh."}
         call = {"type": "call", "name": "contacts.get",
                 "tool_reason": "Đọc thông tin liên hệ",
                 "goals": [{"id": "get", "task": "Xem thông tin liên hệ",

@@ -66,7 +66,7 @@ def route(points, label="", color=ARROW, dashed=False):
 
 ax.text(900, 63, "LifeMate baseline_v2 · Workflow hiện tại",
         ha="center", fontsize=30, weight="bold", color=INK)
-ax.text(900, 111, "Ba node Qwen · checklist request · sửa field cục bộ · kiểm trước và sau tool",
+ax.text(900, 111, "Ba node Qwen · JSON schema · batch giữa các mẫu độc lập · kiểm trước/sau tool",
         ha="center", fontsize=16, color=BODY)
 
 for x, title, sub in zip(LANES,
@@ -172,7 +172,7 @@ ax.text(900, 1642,
         "Tím: Qwen · Vàng: code · Xanh lá: tool. Thường ≤ 3 lượt Qwen/bước; sửa field có thể thêm 2 lượt.",
         ha="center", fontsize=13.2, color=BODY)
 
-ax.text(900, 1678, "Checklist và effect checker có phạm vi hữu hạn; chưa chứng minh mọi ý định/ngữ nghĩa đều đúng.",
+ax.text(900, 1678, "Batch gom node sẵn sàng từ nhiều mẫu; mỗi mẫu giữ thứ tự và ToolEnv riêng. Checker ngữ nghĩa có phạm vi hữu hạn.",
         ha="center", fontsize=12.3, color=BODY)
 fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
 fig.savefig(ROOT / "workflow.svg", facecolor=fig.get_facecolor())
