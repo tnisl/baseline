@@ -11,6 +11,17 @@ AVAILABLE=all(importlib.util.find_spec(x) for x in ('torch','transformers','peft
 
 @unittest.skipUnless(AVAILABLE,'Install torch/transformers/peft for training smoke tests')
 class TrainingLossTests(unittest.TestCase):
+    def test_runtime_report_handles_cpu_without_inspecting_a_cuda_device(self):
+        from types import SimpleNamespace
+        from lifemate_v8_finetune.training.train import runtime_report
+        fake=SimpleNamespace(cuda=SimpleNamespace(is_available=lambda:False),
+                             version=SimpleNamespace(cuda=None))
+        report=runtime_report(fake)
+        self.assertFalse(report['cuda_available'])
+        self.assertIsNone(report['gpu'])
+        self.assertIsNone(report['torch_cuda'])
+        self.assertIn('bitsandbytes',report['packages'])
+
     def test_ranking_pushes_rejected_token_down_instead_of_teaching_it(self):
         import torch
         from types import SimpleNamespace

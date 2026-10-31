@@ -1,9 +1,9 @@
 {
-  "checked_at_utc": "2026-10-31T03:01:56.639651+00:00",
+  "checked_at_utc": "2026-10-31T03:47:01.600698+00:00",
   "tests": {
     "command": "python -B -m unittest discover -s baseline_v8_finetune/tests -p 'test_*.py' -v",
-    "run": 45,
-    "passed": 45,
+    "run": 46,
+    "passed": 46,
     "failed": 0,
     "skipped": 0
   },
@@ -55,7 +55,7 @@
   "original_baseline_v8_unchanged_vs_zip": true,
   "source_sha256": {
     "notebooks/analyze_results.ipynb": "a20f24725486ece002a483e15272ffc6b853d128a5c94414419b7414c6b7296b",
-    "notebooks/kaggle_finetune.ipynb": "dbf803e2fbeab86e24fe36dfc55606b3a1d93c7cd0b70234428495ec5d2d55ec",
+    "notebooks/kaggle_finetune.ipynb": "39fe302d3395b45ef730f48b2a2125d4be18c18297851b0fa7544613678b7801",
     "notebooks/kaggle_runner.ipynb": "74693b6cc740c208d0a00d2260a40a7e7f106c325b670baab5974c9e92b7ff5c",
     "prepare_data.py": "a642e0ab7ce376f3418b62a9ce7d36986bd44ac6d22ca24eeeea833006b56514",
     "requirements/finetune.txt": "254b5ccba8906b785dc2f399c60c03c76113603a566f55aad6b6dab7a0165dcd",
@@ -83,14 +83,22 @@
     "src/lifemate_v8_finetune/training/__init__.py": "60482f281d96717a165f5292395b2e3885400ae09534fce9cdb1c44cecf1e652",
     "src/lifemate_v8_finetune/training/data.py": "78e0788bd642f0f6bb9d550aa7e5c7022ad6d2e575ed26427ecaa1838912e916",
     "src/lifemate_v8_finetune/training/encoding.py": "420cec0f617b222778fa21548cf059372761e41bff5ddfa96773f8f5980bf62e",
-    "src/lifemate_v8_finetune/training/train.py": "268f211962697c0ca3ef7dbcdae596b33e5472b0bfc78b1ec9b6a0157c22aaab",
+    "src/lifemate_v8_finetune/training/train.py": "f9b9e25ed71e6c2397481cda19a0c30bb882b59a8e38dd637ebc9b565c732be1",
     "tests/helpers.py": "7ea575abc46178e5c2275d43a0356ee2f7d4010814cdd86d81234ced1e45a0ae",
     "tests/test_contracts_batch.py": "831416922656cddee10b5f7831d76d79e4417f2a0b58789226d35ec5b7b461eb",
     "tests/test_encoding_adapters.py": "a0134b9f18145b52861be47bb33a910218501b903251c3caeae66793111fa20c",
     "tests/test_layout.py": "0d2aa4c5b9ef1b4cb38c714d81a9fec8e7ad6f751ee565f40a06deb6740abedb",
     "tests/test_pipeline.py": "1924b0338ef3bea1b9f5c953a4f21e9c3a1d04665451365fd3eb12869a8cf404",
     "tests/test_training_data.py": "3ad7ee8791b759ad64e33e6f175f7c77fc9e2cca156c602f3054f84937ea2de9",
-    "tests/test_training_loss.py": "3cfc063290bdf397dc132e4ca2f6630b625de5d6166de3d784ea477901fbdd36",
+    "tests/test_training_loss.py": "74b2ac3af28cec53406b24210450894071b14cda8bfd8308ce5f32d7709fb14f",
     "train_role.py": "f2055dfc8b3c08bd40fe3c7fd18930ce7ef802e9c61e4ec5b33d5283c2099ad4"
+  },
+  "cuda_diagnostics": {
+    "flag": "--cuda-debug",
+    "default": false,
+    "runtime_report_cpu_test": true,
+    "notebook_stdout_stderr_full_traceback_capture_test": true,
+    "changes_training_objective": false,
+    "actual_reported_gpu_fault_reproduced": false
   }
 }

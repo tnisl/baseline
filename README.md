@@ -170,6 +170,14 @@ local_lora/
 
 `--full-precision-base` tắt 4-bit. `--resume-from-checkpoint PATH` tiếp tục role tương ứng. `--overwrite-adapter` cho phép thay adapter đã hoàn tất. Không cần/không có global stage.
 
+Nếu gặp `CUDA error: an illegal memory access was encountered`, dòng dropout trong traceback có thể chỉ là nơi lỗi bất đồng bộ được báo lại. Chưa đủ dữ kiện để quy lỗi cho dropout, 4-bit hoặc phiên bản Python.
+
+- Notebook có `CUDA_DEBUG=True`, tương ứng CLI `--cuda-debug`; đặt CUDA_LAUNCH_BLOCKING=1 trước khi process train import PyTorch. Chỉ bật để chẩn đoán, sẽ làm chậm.
+- Mỗi job ghi GPU/compute capability, PyTorch/CUDA và phiên bản dependencies vào `training_runs/<role>.runtime.json` trước khi load model. Notebook lưu toàn bộ stdout/stderr vào `<role>.console.log`.
+- Sau illegal memory access, process CUDA bị lỗi phải kết thúc trước khi thử lại; nếu kernel notebook cũng bị ảnh hưởng, restart session. Không cố phục hồi bằng empty_cache trong process đã lỗi.
+- Chạy lại role lỗi với MAX_STEPS=5 trong thư mục output mới, giữ nguyên dropout/quantization/negative loss để lấy lỗi gốc. Không thay nhiều tham số cùng lúc hoặc cài lại PyTorch/vLLM khi chưa có full trace.
+- Diagnostics không thay workflow, loss hoặc sửa tự động kernel. Lỗi CUDA thực tế vẫn cần xác định bằng log từ GPU; test CPU không chứng minh đã sửa lỗi đó.
+
 ## Inference với ba adapters
 
 ```bash
@@ -205,6 +213,6 @@ python -m unittest discover -s baseline_v8_finetune/tests -p 'test_*.py' -v
 
 Ngoài các test v8: kiểm split/holdout isolation, label/response đúng thời điểm, rejected không làm target dương, exact loss mask, padding, gradient đẩy rejected xuống, training step thật trên tiny random Qwen3 + PEFT LoRA, save adapter, và mixed-role adapter routing. CPU smoke model nhỏ chỉ kiểm implementation; chưa chạy train Qwen4B trên GPU hoặc chứng minh tăng điểm.
 
-Kết quả kiểm tra hiện tại: **45/45 test pass**. Toàn bộ sáu tập role/split đã tokenize bằng tokenizer Qwen thật, không mẫu nào vượt 8.192 token; các answer token của summarizer đều bị mask. Xem [docs/validation.json](docs/validation.json) và [docs/tokenization_validation.json](docs/tokenization_validation.json).
+Kết quả kiểm tra hiện tại: **46/46 test pass**. Toàn bộ sáu tập role/split đã tokenize bằng tokenizer Qwen thật, không mẫu nào vượt 8.192 token; các answer token của summarizer đều bị mask. Xem [docs/validation.json](docs/validation.json) và [docs/tokenization_validation.json](docs/tokenization_validation.json).
 
 Tài liệu API dùng khi triển khai: [PEFT quantization/LoRA](https://huggingface.co/docs/peft/v0.18.0/developer_guides/quantization), [Transformers Trainer](https://huggingface.co/docs/transformers/v4.57.1/en/main_classes/trainer), [vLLM LoRA requests](https://docs.vllm.ai/en/stable/features/lora/).

@@ -6,14 +6,33 @@ Only selected completion logits are materialized to avoid full prompt x vocabula
 from __future__ import annotations
 import argparse
 import hashlib
+import importlib.metadata
 from pathlib import Path
 import json
 import math
+import os
+import sys
 import time
 
 from ..common import write_json
 from .data import prompt_hashes, stable_hash
 from .encoding import PairCollator, RoleDataset
+
+
+def runtime_report(torch):
+    """Capture versions before model kernels run; do not inspect CUDA after a fault."""
+    packages={}
+    for name in ('torch','transformers','peft','accelerate','bitsandbytes'):
+        try:packages[name]=importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:packages[name]=None
+    cuda=torch.cuda.is_available()
+    return {'python':sys.version.split()[0],'packages':packages,
+            'torch_cuda':torch.version.cuda,'cuda_available':cuda,
+            'gpu':torch.cuda.get_device_name() if cuda else None,
+            'compute_capability':list(torch.cuda.get_device_capability()) if cuda else None,
+            'torch_cuda_arch_list':torch.cuda.get_arch_list() if cuda else [],
+            'cuda_launch_blocking':os.environ.get('CUDA_LAUNCH_BLOCKING'),
+            'cuda_visible_devices':os.environ.get('CUDA_VISIBLE_DEVICES')}
 
 
 def sequence_scores(model,batch):
@@ -118,11 +137,14 @@ def parse_args():
     p.add_argument('--save-steps',type=int,default=100);p.add_argument('--logging-steps',type=int,default=10)
     p.add_argument('--seed',type=int,default=42);p.add_argument('--resume-from-checkpoint')
     p.add_argument('--overwrite-adapter',action='store_true')
+    p.add_argument('--cuda-debug',action='store_true',
+                   help='Set CUDA_LAUNCH_BLOCKING=1 before importing torch; diagnostic only, slower')
     return p.parse_args()
 
 
 def main():
     args=parse_args()
+    if args.cuda_debug:os.environ['CUDA_LAUNCH_BLOCKING']='1'
     if min(args.max_seq_length,args.batch_size,args.gradient_accumulation,args.lora_r,args.lora_alpha,
            args.save_steps,args.logging_steps)<=0 or args.epochs<=0 or args.learning_rate<=0:
         raise ValueError('Training sizes/rates must be positive')
@@ -136,6 +158,11 @@ def main():
     from transformers import AutoTokenizer,AutoModelForCausalLM,BitsAndBytesConfig,TrainingArguments,set_seed
     from peft import LoraConfig,get_peft_model,prepare_model_for_kbit_training
     if not torch.cuda.is_available():raise RuntimeError('Enable a Kaggle GPU before training Qwen3-4B')
+    runtime=runtime_report(torch)
+    runtime.update(role=args.role,load_in_4bit=not args.full_precision_base,
+                   attention_implementation='sdpa',cuda_debug=args.cuda_debug)
+    write_json(Path(args.output_dir)/'training_runs'/f'{args.role}.runtime.json',runtime)
+    print(json.dumps({'training_runtime':runtime},ensure_ascii=False,indent=2),flush=True)
     if torch.distributed.is_initialized() and torch.distributed.get_world_size()!=1:
         raise ValueError('This notebook trains one role per single-GPU process; distributed training is not configured')
     set_seed(args.seed)
@@ -186,6 +213,7 @@ def main():
         'effective_negative_weight':negative_weight,'dtype':str(dtype),'load_in_4bit':not args.full_precision_base,
         'gpu':torch.cuda.get_device_name(0),'prompt_sha256':prompt_hashes(),
         'dataset_manifest_sha256':stable_hash(manifest),'tokenization':stats,
+        'runtime':runtime,
         'summarizer_loss_scope':'next only; answer text masked',
         'trainable_parameter_names':trainable}
     write_json(out/'training_runs'/f'{args.role}.config.json',config)
