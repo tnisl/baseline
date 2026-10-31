@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+import time
 
 
 def common_prefix_length(a,b):
@@ -38,27 +39,42 @@ def encode_completion(tokenizer,messages,target,loss_scope='completion'):
 
 class RoleDataset:
     """Tokenize once, skip overlength cases explicitly, never crop assistant labels."""
-    def __init__(self,path,tokenizer,max_length=8192,*,use_negatives=True,seed=42):
+    def __init__(self,path,tokenizer,max_length=8192,*,use_negatives=True,seed=42,
+                 progress=False,total=None):
         import random
         self.items=[]
         self.stats={'loaded':0,'used':0,'overlength':0,'paired':0,'tokens':0,'supervised_tokens':0}
         rng=random.Random(seed)
-        for line in Path(path).open(encoding='utf-8'):
-            if not line.strip():continue
-            record=json.loads(line);self.stats['loaded']+=1
-            chosen=encode_completion(tokenizer,record['messages'],record['target'],record['loss_scope'])
-            if len(chosen['input_ids'])>max_length:
-                self.stats['overlength']+=1;continue
-            candidates=list(record.get('rejected') or []) if use_negatives else []
-            rng.shuffle(candidates);rejected=None
-            for target in candidates:
-                encoded=encode_completion(tokenizer,record['messages'],target,record['loss_scope'])
-                if len(encoded['input_ids'])<=max_length:
-                    rejected=encoded;break
-            self.items.append({'chosen':chosen,'rejected':rejected,'case_id':record['case_id']})
-            self.stats['used']+=1;self.stats['paired']+=int(rejected is not None)
-            self.stats['tokens']+=len(chosen['input_ids'])
-            self.stats['supervised_tokens']+=sum(x!=-100 for x in chosen['labels'])
+        started=last_report=time.monotonic()
+        def report(force=False,phase='progress'):
+            nonlocal last_report
+            now=time.monotonic();seen=self.stats['loaded']
+            if progress and (force or seen==1 or seen%100==0 or now-last_report>=5):
+                elapsed=now-started
+                print(f'[tokenize] {Path(path).name} {phase}: {seen}/{total if total is not None else "?"}'
+                      f' used={self.stats["used"]} overlength={self.stats["overlength"]}'
+                      f' elapsed={elapsed:.1f}s rate={seen/max(elapsed,.001):.1f} examples/s',flush=True)
+                last_report=now
+        report(True,'start')
+        with Path(path).open(encoding='utf-8') as handle:
+            for line in handle:
+                if not line.strip():continue
+                record=json.loads(line);self.stats['loaded']+=1
+                chosen=encode_completion(tokenizer,record['messages'],record['target'],record['loss_scope'])
+                if len(chosen['input_ids'])>max_length:
+                    self.stats['overlength']+=1;report();continue
+                candidates=list(record.get('rejected') or []) if use_negatives else []
+                rng.shuffle(candidates);rejected=None
+                for target in candidates:
+                    encoded=encode_completion(tokenizer,record['messages'],target,record['loss_scope'])
+                    if len(encoded['input_ids'])<=max_length:
+                        rejected=encoded;break
+                self.items.append({'chosen':chosen,'rejected':rejected,'case_id':record['case_id']})
+                self.stats['used']+=1;self.stats['paired']+=int(rejected is not None)
+                self.stats['tokens']+=len(chosen['input_ids'])
+                self.stats['supervised_tokens']+=sum(x!=-100 for x in chosen['labels'])
+                report()
+        report(True,'complete')
         if not self.items:raise ValueError('No usable examples after length filtering: '+str(path))
 
     def __len__(self):return len(self.items)

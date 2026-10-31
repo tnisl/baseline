@@ -1,6 +1,8 @@
 """Loss boundaries and per-request adapter routing, including mixed-role batches."""
 import hashlib
+from contextlib import redirect_stdout
 import importlib.util
+import io
 import json
 from pathlib import Path
 from threading import RLock
@@ -10,7 +12,7 @@ import unittest
 
 from helpers import BASE
 from lifemate_v8_finetune.adapters import ROLE_SYSTEMS,resolve_adapters,role_for_messages
-from lifemate_v8_finetune.training.encoding import encode_completion,PairCollator
+from lifemate_v8_finetune.training.encoding import encode_completion,PairCollator,RoleDataset
 from lifemate_v8_finetune.models import QwenVLLM,Qwen
 
 
@@ -23,6 +25,27 @@ class CharTokenizer:
 
 
 class EncodingAdapterTests(unittest.TestCase):
+    def test_dataset_progress_preserves_encoding_negatives_and_overlength_counts(self):
+        messages=[{'role':'user','content':'request'}]
+        rows=[{'case_id':'one','messages':messages,'target':'{"arguments":{}}',
+               'rejected':['{"type":"skip"}'],'loss_scope':'completion'},
+              {'case_id':'two','messages':messages,'target':'{"next":"done","answer":"masked"}',
+               'rejected':['{"next":"give_up","answer":"masked"}'],'loss_scope':'next'},
+              {'case_id':'long','messages':messages,'target':'x'*1000,
+               'rejected':[],'loss_scope':'completion'}]
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'role.train.jsonl';p.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            quiet=RoleDataset(p,CharTokenizer(),max_length=256)
+            output=io.StringIO()
+            with redirect_stdout(output):
+                visible=RoleDataset(p,CharTokenizer(),max_length=256,progress=True,total=3)
+            self.assertEqual(visible.items,quiet.items)
+            self.assertEqual(visible.stats,quiet.stats)
+            self.assertEqual(visible.stats['overlength'],1)
+            self.assertIn('start: 0/3',output.getvalue())
+            self.assertIn('complete: 3/3',output.getvalue())
+            self.assertIn('overlength=1',output.getvalue())
+
     def test_completion_masks_prompt_and_decision_masks_entire_answer(self):
         t=CharTokenizer();messages=[{'role':'system','content':'test'},{'role':'user','content':'request'}]
         target='{"next":"done","answer":"This is not an answer training label."}'

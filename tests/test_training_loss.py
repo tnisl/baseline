@@ -9,6 +9,19 @@ from helpers import BASE
 AVAILABLE=all(importlib.util.find_spec(x) for x in ('torch','transformers','peft'))
 
 
+class GPUSelectionTests(unittest.TestCase):
+    def test_single_gpu_selection_preserves_inherited_device_mapping(self):
+        from lifemate_v8_finetune.training.train import select_visible_gpu
+        self.assertEqual(select_visible_gpu(0,{}),'0')
+        self.assertEqual(select_visible_gpu(1,{}),'1')
+        self.assertEqual(select_visible_gpu(0,{'CUDA_VISIBLE_DEVICES':'2,3'}),'2')
+        self.assertEqual(select_visible_gpu(1,{'CUDA_VISIBLE_DEVICES':'GPU-a, GPU-b'}),'GPU-b')
+        for index,env in [(-1,{}),(2,{'CUDA_VISIBLE_DEVICES':'0,1'}),
+                          (0,{'CUDA_VISIBLE_DEVICES':''}),(0,{'CUDA_VISIBLE_DEVICES':'-1'})]:
+            with self.subTest(index=index,env=env):
+                with self.assertRaises(ValueError):select_visible_gpu(index,env)
+
+
 @unittest.skipUnless(AVAILABLE,'Install torch/transformers/peft for training smoke tests')
 class TrainingLossTests(unittest.TestCase):
     def test_runtime_report_handles_cpu_without_inspecting_a_cuda_device(self):
@@ -45,7 +58,7 @@ class TrainingLossTests(unittest.TestCase):
         from transformers import Qwen3Config,Qwen3ForCausalLM,TrainingArguments
         from peft import LoraConfig,get_peft_model
         from lifemate_v8_finetune.training.encoding import PairCollator
-        from lifemate_v8_finetune.training.train import trainer_class
+        from lifemate_v8_finetune.training.train import trainer_class,adapter_state
         torch.set_num_threads(2);torch.manual_seed(42)
         config=Qwen3Config(vocab_size=64,hidden_size=32,intermediate_size=64,num_hidden_layers=1,
                            num_attention_heads=4,num_key_value_heads=2,head_dim=8,pad_token_id=0,eos_token_id=3)
@@ -56,6 +69,7 @@ class TrainingLossTests(unittest.TestCase):
         def row(token):return {'input_ids':[1,2,token,3],'attention_mask':[1]*4,'labels':[-100,-100,token,3]}
         items=[{'chosen':row(10),'rejected':row(11),'case_id':'synthetic'}]*4
         before={n:p.detach().clone() for n,p in model.named_parameters() if p.requires_grad}
+        before_digest=adapter_state(model)
         with tempfile.TemporaryDirectory() as d:
             args=TrainingArguments(output_dir=d,max_steps=2,per_device_train_batch_size=1,
                 gradient_accumulation_steps=2,learning_rate=.01,use_cpu=True,report_to='none',
@@ -65,12 +79,16 @@ class TrainingLossTests(unittest.TestCase):
             trainer=trainer_class()(model=model,args=args,train_dataset=items,eval_dataset=items,
                                     data_collator=PairCollator(0),negative_weight=.2)
             trainer.train();metrics=trainer.evaluate();trainer.save_model(d)
+            self.assertEqual(trainer.train_microbatches,4)
             self.assertTrue((Path(d)/'adapter_model.safetensors').is_file())
             self.assertEqual(metrics['eval_pairs'],4)
             self.assertIn('eval_preference_accuracy',metrics)
         self.assertTrue(any(not torch.equal(before[n],p.detach()) for n,p in model.named_parameters() if n in before))
         self.assertTrue(all(p.grad is None for n,p in model.named_parameters() if 'lora_' not in n))
         self.assertTrue(all('lora_' in n for n,p in model.named_parameters() if p.requires_grad))
+        after_digest=adapter_state(model)
+        self.assertTrue(after_digest['finite'])
+        self.assertNotEqual(before_digest['sha256'],after_digest['sha256'])
 
 
 if __name__=='__main__':unittest.main()

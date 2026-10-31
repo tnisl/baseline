@@ -8,3 +8,6 @@ local_lora/
 training_outputs/
 checkpoints/
 adapters/
+smoke/
+train/
+.cache/
