@@ -17,6 +17,7 @@ import time
 from ..common import write_json
 from .data import prompt_hashes, stable_hash
 from .encoding import PairCollator, RoleDataset
+from .attention import configure_training_attention
 
 
 def select_visible_gpu(index,environ):
@@ -210,10 +211,12 @@ def main():
     from peft import LoraConfig,get_peft_model,prepare_model_for_kbit_training
     if not torch.cuda.is_available():raise RuntimeError('Enable a Kaggle GPU before training Qwen3-4B')
     if torch.cuda.device_count()!=1:raise RuntimeError('Training requires exactly one visible GPU per process')
+    attention_policy=configure_training_attention(torch)
     runtime=runtime_report(torch)
     runtime.update(role=args.role,load_in_4bit=not args.full_precision_base,
                    requested_gpu_index=args.gpu_index,inherited_cuda_visible_devices=inherited_visible_devices,
                    attention_implementation='sdpa',cuda_debug=args.cuda_debug)
+    runtime['attention_policy']=attention_policy
     write_json(Path(args.output_dir)/'training_runs'/f'{args.role}.runtime.json',runtime)
     print(json.dumps({'training_runtime':runtime},ensure_ascii=False,indent=2),flush=True)
     if torch.distributed.is_initialized() and torch.distributed.get_world_size()!=1:

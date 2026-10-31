@@ -50,6 +50,8 @@ python finetune.py --profile train --output-dir /tmp/v8_lora_epoch2 \
 
 Các giá trị là cấu hình khởi đầu, chưa chứng minh tối ưu điểm số. QLoRA mặc định dùng frozen NF4 base + double quant; compute FP16 trên T4, BF16 khi GPU hỗ trợ. LoRA áp dụng q/k/v/o và gate/up/down projections. Chỉ tham số LoRA được train; code từ chối base weights trainable.
 
+Trên GPU trước Ampere như T4, selector GQA của Transformers 4.57 có thể làm SDPA rơi về math attention với bộ nhớ O(sequence²). Đã tái hiện OOM trên T4 ở prompt 5.950 token. Training process dùng đường repeat_kv sẵn có của Transformers và fused memory-efficient SDPA trên nhóm GPU này; tắt math fallback để báo lỗi rõ nếu kernel không hỗ trợ shape. GPU Ampere trở lên giữ dispatch chuẩn. Đây vẫn là cùng scaled dot-product attention, masks và loss; không cắt dữ liệu hoặc đổi kiến trúc. Test CPU kiểm tương đương output và gradient ở double precision. Xem [vấn đề upstream](https://github.com/huggingface/transformers/issues/48633).
+
 ## Nhãn và mẫu âm
 
 - Planner SFT chuỗi tool gold theo thứ tự, giữ bước lặp. `sys.ask_missing_info` chuyển thành slot tool nghiệp vụ cho caller học ask.
