@@ -1,4 +1,5 @@
-# Keep Kaggle's CUDA-matched PyTorch. Do not install vLLM in this training cell.
+# Install in the isolated environment made by setup_training_env.py.
+# CUDA PyTorch is pinned separately in pytorch-cu128.txt. Do not install vLLM here.
 transformers==4.57.6
 peft==0.18.0
 accelerate==1.12.0

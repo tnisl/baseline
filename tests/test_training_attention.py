@@ -5,13 +5,37 @@ import unittest
 from unittest.mock import Mock, patch
 
 from helpers import BASE
-from lifemate_v8_finetune.training.attention import configure_training_attention
+from lifemate_v8_finetune.training.attention import configure_training_attention, chunked_sdpa_attention_forward
 
 AVAILABLE = all(importlib.util.find_spec(x) for x in ("torch", "transformers"))
 
 
 @unittest.skipUnless(AVAILABLE, "Install torch/transformers for attention tests")
 class TrainingAttentionTests(unittest.TestCase):
+    def test_query_tiling_matches_full_attention_and_gradients_with_causal_and_padding_masks(self):
+        import torch
+        from transformers.integrations import sdpa_attention
+        torch.manual_seed(9)
+        module = SimpleNamespace(num_key_value_groups=2, is_causal=True)
+        originals = [torch.randn(2, h, 7, 8, dtype=torch.float64) for h in (4, 2, 2)]
+        mask = torch.ones(2, 1, 7, 7, dtype=torch.bool).tril()
+        mask[..., -1] = False
+        additive = torch.zeros_like(mask, dtype=torch.float64).masked_fill(~mask, -float('inf'))
+        for bias, causal in ((None, None), (None, False), (mask, None), (additive, None)):
+            with self.subTest(mask_type=None if bias is None else bias.dtype, causal=causal):
+                results = []
+                for tiled in (False, True):
+                    tensors = [x.clone().requires_grad_() for x in originals]
+                    with patch.object(sdpa_attention, 'use_gqa_in_sdpa', return_value=False):
+                        function = chunked_sdpa_attention_forward if tiled else sdpa_attention.sdpa_attention_forward
+                        options = {'chunk_size':3} if tiled else {}
+                        output, _ = function(module, *tensors, bias, scaling=.27, is_causal=causal, **options)
+                    output.square().sum().backward()
+                    results.append((output.detach(), [x.grad for x in tensors]))
+                torch.testing.assert_close(results[0][0], results[1][0], atol=1e-10, rtol=1e-10)
+                for a, b in zip(results[0][1], results[1][1]):
+                    torch.testing.assert_close(a, b, atol=1e-10, rtol=1e-10)
+
     def test_t4_uses_explicit_kv_and_fused_kernel_without_changing_ampere_policy(self):
         from transformers.integrations import sdpa_attention
         backend = SimpleNamespace(**{name: Mock() for name in (

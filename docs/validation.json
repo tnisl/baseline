@@ -1,9 +1,9 @@
 {
-  "checked_at_utc": "2026-10-31T05:56:11.900533+00:00",
+  "checked_at_utc": "2026-10-31T06:08:21.495208+00:00",
   "tests": {
     "command": "python -B -m unittest discover -s baseline_v8_finetune/tests -p 'test_*.py' -v",
-    "run": 53,
-    "passed": 53,
+    "run": 54,
+    "passed": 54,
     "failed": 0,
     "skipped": 0
   },
@@ -56,15 +56,17 @@
   "source_sha256": {
     "finetune.py": "43674f4c77b0fd381f2fdc447c5590965975cdfe9d0b7d4df15b93fe800af719",
     "notebooks/analyze_results.ipynb": "a20f24725486ece002a483e15272ffc6b853d128a5c94414419b7414c6b7296b",
-    "notebooks/kaggle_finetune.ipynb": "28cb22116c701bbc2e6bf7c57dce8ca9fc965627422bd21e501fe2d585dc96df",
+    "notebooks/kaggle_finetune.ipynb": "ba5110fc8a6b43dab94bd4632601a19a70ae8e326eaa24b442b49631ce31acfa",
     "notebooks/kaggle_runner.ipynb": "74693b6cc740c208d0a00d2260a40a7e7f106c325b670baab5974c9e92b7ff5c",
     "prepare_data.py": "a642e0ab7ce376f3418b62a9ce7d36986bd44ac6d22ca24eeeea833006b56514",
-    "requirements/finetune.txt": "254b5ccba8906b785dc2f399c60c03c76113603a566f55aad6b6dab7a0165dcd",
+    "requirements/finetune.txt": "b8b36fb3721b1b09c702d96998cf4f17b43a5c614a0a44b7235a677eb67c3d9d",
+    "requirements/pytorch-cu128.txt": "f6e1abdd97d433a80b7fbf878225334a3ea968302c16df5aff28286acf5c3d82",
     "requirements/test.txt": "8976121b12cbb0dc7e3ed0a6c7af09209a97e42c7a31595cd5b96bf133be7310",
     "requirements/transformers.txt": "3f4f04e994817c1db10829503f807a5c5eb0cab078c647e86c6ef6d33abce6ca",
     "requirements/vllm.txt": "7b3ea7c48ef9c929264c842d4d81e3ac73ce773d9225e1d6ecdd3607a349c911",
     "run.py": "cc76737e8d1135ca45c957671d917ff5fb710c552f372195ff2fda3c4b7e1cdb",
     "run_one.py": "1bd73b65f56c7fee0b9c935e042bafa1791682afd47c90509d79f9ae98d1d1be",
+    "setup_training_env.py": "fb289f94cf4e75cf2fc0f06bedca0e495ff55c4e203168915e74c982b0a3c994",
     "src/lifemate_v8_finetune/__init__.py": "cd213e22b29f5dcf2259d934675d20de1c7bf993a46fbe261069ccabf892b443",
     "src/lifemate_v8_finetune/__main__.py": "15f8037485edacee7e1e88c43fc30c8d9362cd6ccbf97d6c6ccabbbd7a00e382",
     "src/lifemate_v8_finetune/adapters.py": "9e6f3a0b48d1490faba5b0f8619a0a850517e1851bf0c8fb91cca22398407935",
@@ -82,17 +84,17 @@
     "src/lifemate_v8_finetune/reproducibility.py": "e00a7aed705aba9e470bcba54156bba0de13af52802552f05451ea1a16b6a08a",
     "src/lifemate_v8_finetune/runner.py": "77c523b69c6e1596a741cb0ecbb44160d1c6c678768b690d2fdc8f9649055ca8",
     "src/lifemate_v8_finetune/training/__init__.py": "60482f281d96717a165f5292395b2e3885400ae09534fce9cdb1c44cecf1e652",
-    "src/lifemate_v8_finetune/training/attention.py": "093e838feac2b2a87e40d7573fc6772437fc777a53613370f764e8e7e324a9b1",
+    "src/lifemate_v8_finetune/training/attention.py": "c2f62df7a6809306cb626e72728f8a6ea236551bc007a8a54340d8ec573f0d9b",
     "src/lifemate_v8_finetune/training/data.py": "78e0788bd642f0f6bb9d550aa7e5c7022ad6d2e575ed26427ecaa1838912e916",
     "src/lifemate_v8_finetune/training/encoding.py": "016ff7e9e53b77ae6f1a75416e046f0bf7b039934e0216543bca212cf61846df",
     "src/lifemate_v8_finetune/training/run.py": "4398ecd611ce5fbb3cc2cfa9bd31393906da5bddb05c8e7cca342a1855dae41c",
-    "src/lifemate_v8_finetune/training/train.py": "efe5b97267fd3fd78c60943b5aedcf3cf910fdad93ae624e657ad288e482a800",
+    "src/lifemate_v8_finetune/training/train.py": "cfe9a653fb5e2d233014e0be6d8766d9b7a12021b3eedb789369bcab8a45bd53",
     "tests/helpers.py": "7ea575abc46178e5c2275d43a0356ee2f7d4010814cdd86d81234ced1e45a0ae",
     "tests/test_contracts_batch.py": "831416922656cddee10b5f7831d76d79e4417f2a0b58789226d35ec5b7b461eb",
     "tests/test_encoding_adapters.py": "e99f7d77a399df44b632e77799a5629509510d7449452f446e3d05b4685edfb6",
     "tests/test_layout.py": "0d2aa4c5b9ef1b4cb38c714d81a9fec8e7ad6f751ee565f40a06deb6740abedb",
     "tests/test_pipeline.py": "1924b0338ef3bea1b9f5c953a4f21e9c3a1d04665451365fd3eb12869a8cf404",
-    "tests/test_training_attention.py": "d97fd4a195d1883101b322a14b2fec12cc142cf63a7ae9cc29bbeec7fa80c9c9",
+    "tests/test_training_attention.py": "a8891d8024e22ea354d734cb5590a7257f6508b817c119879b6a6db88ac62747",
     "tests/test_training_data.py": "3ad7ee8791b759ad64e33e6f175f7c77fc9e2cca156c602f3054f84937ea2de9",
     "tests/test_training_loss.py": "952de8d0bf12877dc5cdaafe6d546794a4dff2898000d2c293560dbf09a49050",
     "tests/test_training_run.py": "668fef403edbc3b8eb1ac9cc52ac92a805ac203347b54a61b64774143da19622",
@@ -172,6 +174,25 @@
       "torch": "2.11.0+cu128",
       "gpu": "Tesla T4",
       "visible_gpus": 1
+    },
+    {
+      "version": 3,
+      "commit": "83eb09f",
+      "status": "ERROR",
+      "reason": "Invalid backend in PyTorch 2.11 fused SDPA; switched to isolated pinned training environment with kernel preflight and exact tiled fallback"
     }
-  ]
+  ],
+  "isolated_environment": {
+    "python_venv_no_global_torch_inheritance_checked": true,
+    "pytorch": "2.9.1",
+    "cuda_wheel_index": "cu128",
+    "does_not_replace_global_torch": true
+  },
+  "tiled_attention": {
+    "full_key_attention": true,
+    "query_tile_size": 256,
+    "checkpoint_each_tile": true,
+    "causal_padding_output_gradient_equivalence_cpu": true,
+    "gpu_validation": "pending"
+  }
 }

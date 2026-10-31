@@ -17,7 +17,7 @@ import time
 from ..common import write_json
 from .data import prompt_hashes, stable_hash
 from .encoding import PairCollator, RoleDataset
-from .attention import configure_training_attention
+from .attention import configure_training_attention, attention_preflight, enable_chunked_sdpa_fallback
 
 
 def select_visible_gpu(index,environ):
@@ -219,6 +219,21 @@ def main():
     runtime['attention_policy']=attention_policy
     write_json(Path(args.output_dir)/'training_runs'/f'{args.role}.runtime.json',runtime)
     print(json.dumps({'training_runtime':runtime},ensure_ascii=False,indent=2),flush=True)
+    print(f'[{args.role}] Checking CUDA attention forward/backward before model load...',flush=True)
+    try:
+        runtime['attention_preflight']=attention_preflight(torch)
+    except RuntimeError as exc:
+        # Only backend-selection failures are recoverable. Never continue after a
+        # CUDA illegal address/device assertion or silently swallow an OOM.
+        unsupported=any(marker in str(exc).lower() for marker in
+                        ('invalid backend','no available kernel','no viable backend','no viable kernel'))
+        if attention_policy['policy']!='explicit_kv_fused_efficient_sdpa' or not unsupported:raise
+        print(f'[{args.role}] Fused SDPA unavailable; using exact checkpointed query tiles.',flush=True)
+        runtime['attention_policy']=enable_chunked_sdpa_fallback(torch)
+        runtime['attention_policy']['fused_preflight_error']=str(exc)
+        runtime['attention_preflight']=attention_preflight(torch)
+    write_json(Path(args.output_dir)/'training_runs'/f'{args.role}.runtime.json',runtime)
+    print(f'[{args.role}] CUDA attention preflight passed.',flush=True)
     if torch.distributed.is_initialized() and torch.distributed.get_world_size()!=1:
         raise ValueError('This notebook trains one role per single-GPU process; distributed training is not configured')
     set_seed(args.seed)
