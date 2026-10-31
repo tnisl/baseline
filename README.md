@@ -15,6 +15,8 @@ Notebook: [notebooks/kaggle_finetune.ipynb](notebooks/kaggle_finetune.ipynb). No
 
 Notebook mặc định không bật `CUDA_DEBUG`; chỉ bật khi cần xác định kernel gây lỗi. Cả ba job chạy tuần tự trong process riêng và **chỉ nhìn thấy một GPU**, kể cả khi Kaggle cấp T4 x2. `GPU_INDEX=0` chọn GPU đầu trong CUDA_VISIBLE_DEVICES kế thừa; không tự bật DataParallel/DDP.
 
+`notebooks/kernel-metadata.json` có cấu hình publish private và dataset source cho Kaggle CLI (`kaggle kernels push -p notebooks`). Kaggle MCP hiện có thể bỏ qua data-source arrays khi save_notebook; sau khi tạo cần kiểm metadata có dataset_data_sources. Nếu thiếu, dùng Kaggle API/CLI để gắn đúng dataset trước khi chạy. Source được clone vào /tmp để notebook output không chứa toàn bộ .git.
+
 ## CLI thống nhất
 
 ```bash

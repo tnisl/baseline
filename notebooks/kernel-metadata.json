@@ -1,0 +1,17 @@
+{
+  "id": "lctrnnguynkhi/baseline-v8-local-lora-gpu-smoke",
+  "title": "Baseline v8 local LoRA GPU smoke",
+  "code_file": "kaggle_finetune.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
