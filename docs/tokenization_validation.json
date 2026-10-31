@@ -1,0 +1,50 @@
+{
+  "planner.train": {
+    "loaded": 1300,
+    "used": 1300,
+    "overlength": 0,
+    "paired": 0,
+    "tokens": 5205313,
+    "supervised_tokens": 20083
+  },
+  "planner.validation": {
+    "loaded": 144,
+    "used": 144,
+    "overlength": 0,
+    "paired": 0,
+    "tokens": 583024,
+    "supervised_tokens": 2357
+  },
+  "caller.train": {
+    "loaded": 3718,
+    "used": 3718,
+    "overlength": 0,
+    "paired": 3718,
+    "tokens": 7809444,
+    "supervised_tokens": 87271
+  },
+  "caller.validation": {
+    "loaded": 436,
+    "used": 436,
+    "overlength": 0,
+    "paired": 436,
+    "tokens": 928526,
+    "supervised_tokens": 10403
+  },
+  "summarizer.train": {
+    "loaded": 5165,
+    "used": 5165,
+    "overlength": 0,
+    "paired": 4972,
+    "tokens": 15030482,
+    "supervised_tokens": 29646
+  },
+  "summarizer.validation": {
+    "loaded": 619,
+    "used": 619,
+    "overlength": 0,
+    "paired": 605,
+    "tokens": 1815985,
+    "supervised_tokens": 3559
+  }
+}

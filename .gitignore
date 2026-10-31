@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+outputs/
+lifemate_baseline_v8_finetune/
+local_lora/
+training_outputs/
+checkpoints/
+adapters/

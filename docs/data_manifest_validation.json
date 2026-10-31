@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "method": "role-local SFT + reference-free pairwise ranking; no global stage",
+  "base_model": "Qwen/Qwen3-4B-Instruct-2507",
+  "seed": 42,
+  "validation_fraction": 0.1,
+  "generation": {
+    "limit": 0,
+    "negatives_per_example": 2,
+    "counterfactuals_per_case": 2
+  },
+  "files_sha256": {
+    "planner.train.jsonl": "0d32ba007b6113702543390c50884eb487034731d6f303a2b22988d7c32d2efe",
+    "planner.validation.jsonl": "90b90bb7d6b9adf45680669a9d050518bd52636ac39202645078b1d5eb753ba2",
+    "caller.train.jsonl": "c363f795f55512caaca248c461f740c4faa8be4bf187ff72bc8ef0323b732c15",
+    "caller.validation.jsonl": "3da297a8ad10d8aa4a7e8261dcc53d1f0721fd5b9753bedd8e59497389f6c15f",
+    "summarizer.train.jsonl": "4e445a1ca7af13c2ea57a7d27f2832c58dcf5cb8c4909397fc3045ab3c6aca82",
+    "summarizer.validation.jsonl": "9493f40ed545f5e1e689fb364b21d405916e959793f79bfbecde0012755c435b"
+  },
+  "dataset_sha256": "24c42c79fbe8db932fe9817d041c0d0ca422ac8177b413cc1be0cda1fd8941a8",
+  "prompt_sha256": {
+    "planner": "53c7283c8436009ed9a1dc4b67441f887230a1d712da110e21a003831635e41e",
+    "caller": "17bb4cf3312dbc09d190ab0bec0c106d7cf5506b8c280eeb9d55b2583fd1edcc",
+    "summarizer": "685fa5fd3a63fc095bf5d2110881a13314a31202149c8469e44e8f0722749fa5"
+  },
+  "episodes_used": {
+    "train": 1300,
+    "validation": 144
+  },
+  "excluded_episodes": 1,
+  "holdout_count": 100,
+  "counts": {
+    "planner.train": {
+      "examples": 1300,
+      "paired": 0,
+      "sources": {
+        "gold_plan": 1300
+      }
+    },
+    "planner.validation": {
+      "examples": 144,
+      "paired": 0,
+      "sources": {
+        "gold_plan": 144
+      }
+    },
+    "caller.train": {
+      "examples": 3718,
+      "paired": 3718,
+      "sources": {
+        "gold_call": 2951,
+        "counterfactual_recovery": 767
+      }
+    },
+    "caller.validation": {
+      "examples": 436,
+      "paired": 436,
+      "sources": {
+        "gold_call": 348,
+        "counterfactual_recovery": 88
+      }
+    },
+    "summarizer.train": {
+      "examples": 5165,
+      "paired": 4972,
+      "sources": {
+        "gold_summary": 2951,
+        "counterfactual_wrong_effect": 738,
+        "counterfactual_incomplete_plan": 709,
+        "counterfactual_failure": 767
+      }
+    },
+    "summarizer.validation": {
+      "examples": 619,
+      "paired": 605,
+      "sources": {
+        "gold_summary": 348,
+        "counterfactual_failure": 88,
+        "counterfactual_wrong_effect": 90,
+        "counterfactual_incomplete_plan": 93
+      }
+    }
+  },
+  "flags": {
+    "counterfactuals": 1683,
+    "missing_dependency_cases": 0,
+    "empty_gold_summary_unlabeled": 103
+  },
+  "negative_policy": "wrong outputs only rejected; env failures produce correct recovery targets; wrong effects/incomplete plans produce give_up",
+  "summarizer_loss": "next only; generic terminal answer text is masked",
+  "planner_label_limitation": "gold executed tool sequence, not a complete runtime-branch/foreach plan"
+}

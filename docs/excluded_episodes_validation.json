@@ -1,0 +1,7 @@
+[
+  {
+    "case_id": "train_1696",
+    "split": "train",
+    "error": "Unsuccessful gold tool call: {'ok': True, 'done': False, 'message': 'không tìm thấy chat_id'}"
+  }
+]

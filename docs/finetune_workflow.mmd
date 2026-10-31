@@ -1,0 +1,24 @@
+flowchart TD
+    D[Train episodes with gold calls] --> SPLIT[Split by case ID before augmentation]
+    SPLIT --> H[100 protected holdout episodes]
+    SPLIT --> R[Replay gold in independent ToolEnv sessions]
+    R --> P[Planner messages and ordered gold tool list]
+    R --> C[Caller messages and gold arg/value completion]
+    R --> S[Summarizer messages and verified next decision]
+    R --> N[Mutate structured values and omit final write]
+    N --> V[Verify error, recovery or wrong effect with ToolEnv]
+    V --> CN[Caller chosen/rejected and recovery pairs]
+    V --> SN[Summarizer chosen/rejected decisions]
+    B[Frozen original Qwen3-4B base] --> LP[Independent planner LoRA: SFT]
+    B --> LC[Independent caller LoRA: SFT plus ranking]
+    B --> LS[Independent summarizer LoRA: next-only SFT plus ranking]
+    P --> LP
+    C --> LC
+    CN --> LC
+    S --> LS
+    SN --> LS
+    LP --> I[One inference base with three role adapters]
+    LC --> I
+    LS --> I
+    H --> E[Evaluate unchanged v8 workflow on holdout]
+    I --> E
