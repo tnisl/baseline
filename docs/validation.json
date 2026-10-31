@@ -1,0 +1,20 @@
+{
+  "architecture": "ordered_plan_caller_summarizer",
+  "workflow_sha256": "5422f9430a4b7f0f6ddddc981c275bac078c321d4abfeee0113de00c99a270a9",
+  "validation_kind": "CPU scripted models with real ToolEnv and guidance; not Qwen GPU evaluation",
+  "python": "3.10.20",
+  "dependencies": {
+    "llguidance": "1.3.0",
+    "jsonschema": "4.26.0",
+    "matplotlib": "3.10.9"
+  },
+  "tests_run": 31,
+  "tests_passed": 31,
+  "tests_skipped": 0,
+  "decoder_schema_variants_checked": 158,
+  "notebooks": "Both pass nbformat validation and Python cell AST parsing; plan/tool/event budgets wired",
+  "entry_points": "run.py and run_one.py --help pass from unrelated working directory",
+  "existing_v7": "Byte-identical to baseline_v7.zip; unchanged",
+  "gpu_inference_run": false,
+  "test_command": "python -m unittest discover -s baseline_v8/tests -p 'test_*.py' -v"
+}

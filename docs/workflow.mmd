@@ -1,0 +1,19 @@
+flowchart TD
+    I[Request + context + history + allowed catalog] --> P[Planner: ordered tool slots, once]
+    P --> L[Code fixes plan order and initializes cursor]
+    L -->|nonempty plan| C[Caller: args and values for current tool]
+    L -->|empty plan| S[Summarizer: raw env responses + plan progress]
+    C -->|call args| V[env.validate then env.call]
+    V -->|success| A[Advance cursor by one]
+    C -->|skip inapplicable slot| A
+    A --> S
+    V -->|actual error, cursor unchanged| S
+    C -->|blocked| S
+    S -->|caller: pending slots after success or skip| C
+    S -->|retry: same slot after env error| C
+    S -->|done: plan exhausted and task complete| D[Stop with final answer]
+    S -->|give_up| G[Stop with limits or failure]
+    V -->|ask succeeds| W[Summarizer restricted to wait]
+    W --> U[Stop: waiting for user]
+    C -->|bad output or budget| X[Stop: code guard]
+    V -->|duplicate write / repeated response| X
