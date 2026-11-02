@@ -8,6 +8,29 @@ HAS_STACK=all(importlib.util.find_spec(x) is not None for x in ("torch","transfo
 
 @unittest.skipUnless(HAS_STACK,"Install torch/transformers/peft to verify actual tensor updates")
 class TorchIntegration(unittest.TestCase):
+    def test_tiled_attention_preserves_outputs_gradients_and_cached_positions(self):
+        import torch
+        from types import SimpleNamespace
+        from umilife.attention import chunked_sdpa_attention_forward
+        torch.manual_seed(12)
+        for q_length, k_length, padded in ((9,9,False), (9,9,True), (2,11,False), (1,11,False)):
+            q=torch.randn(2,4,q_length,8,dtype=torch.float64,requires_grad=True)
+            k=torch.randn(2,2,k_length,8,dtype=torch.float64,requires_grad=True)
+            v=torch.randn(2,2,k_length,8,dtype=torch.float64,requires_grad=True)
+            mask=torch.arange(k_length)[None,:] <= (torch.arange(q_length)+k_length-q_length)[:,None]
+            mask=mask[None,None,:,:].expand(2,1,q_length,k_length).clone()
+            if padded:mask[...,0]=False
+            ref=torch.nn.functional.scaled_dot_product_attention(q,k.repeat_interleave(2,dim=1),
+                v.repeat_interleave(2,dim=1),attn_mask=mask,is_causal=False)
+            actual,_=chunked_sdpa_attention_forward(SimpleNamespace(is_causal=True),q,k,v,
+                mask if padded else None,is_causal=q_length>1,chunk_size=3)
+            actual=actual.transpose(1,2)
+            torch.testing.assert_close(actual,ref,rtol=1e-9,atol=1e-9)
+            expected_grads=torch.autograd.grad(ref.square().sum(),(q,k,v),retain_graph=True)
+            actual_grads=torch.autograd.grad(actual.square().sum(),(q,k,v))
+            for a,b in zip(actual_grads,expected_grads):
+                torch.testing.assert_close(a,b,rtol=1e-8,atol=1e-8)
+
     def test_local_continuations_start_at_global_and_update_independently(self):
         import torch
         from transformers import Qwen3Config,Qwen3ForCausalLM

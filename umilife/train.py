@@ -84,7 +84,6 @@ def main():
     import torch
     from transformers import Trainer,TrainingArguments
     from peft import LoraConfig,get_peft_model,PeftModel,prepare_model_for_kbit_training
-    from .attention import attention_preflight
     data=Path(a.data_dir);out=Path(a.output_dir);target=out/"adapters"/a.stage
     if target.exists():raise FileExistsError("Refusing to overwrite completed stage: "+str(target))
     manifest=json.loads((data/"manifest.json").read_text())
@@ -94,7 +93,6 @@ def main():
         file=data/f"{a.stage}.{part}.jsonl"
         if digest(file)!=manifest["files_sha256"][file.name]:raise ValueError("Dataset checksum mismatch")
     tokenizer,model=load_base(a.model,four_bit=True,training=True,revision=a.revision)
-    attention_preflight(torch)
     model=prepare_model_for_kbit_training(model,use_gradient_checkpointing=True,
                                          gradient_checkpointing_kwargs={"use_reentrant":False})
     parent=None
@@ -152,6 +150,7 @@ def main():
         "gradient_accumulation":a.gradient_accumulation,"tokenization":{"train":train.stats,"validation":valid.stats},
         "before":before,"after":after,"train":result.metrics,"wall_s":time.monotonic()-started,
         "peak_cuda_gb":torch.cuda.max_memory_allocated()/2**30,
+        "attention_policy":model.attention_policy_report,
         "versions":{n:importlib.metadata.version(n) for n in ("torch","transformers","peft","bitsandbytes","accelerate")}}
     write_json(target/"lineage.json",record)
     print(dumps(record),flush=True)

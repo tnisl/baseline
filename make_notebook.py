@@ -75,9 +75,10 @@ print("Private notebook artifacts:",WORK)
         "Qwen generates train-only rationales with prefix-only observations. "
         "Validation compares global vs local using oracle text and audio. "
         "Public test is inference-only. Pilot is a limited training experiment; full follows the paper's epoch schedule.\n"}]
-    for source in cell_source:
+    for index,source in enumerate(cell_source):
         source=source.replace("__GIT_REF__",json.dumps(git_ref)).replace("__PROFILE__",json.dumps(profile))
-        cells.append({"cell_type":"code","execution_count":None,"metadata":{},"outputs":[],"source":source})
+        cells.append({"id":f"step-{index}","cell_type":"code","execution_count":None,"metadata":{},"outputs":[],"source":source})
+    cells[0]["id"]="overview"
     notebook={"cells":cells,"metadata":{"kernelspec":{"display_name":"Python 3","language":"python","name":"python3"}},
               "nbformat":4,"nbformat_minor":5}
     slug="lctrnnguynkhi/lifemate-paper-qwen3-glpft"

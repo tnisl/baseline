@@ -2,6 +2,26 @@
 from __future__ import annotations
 
 
+def configure_compatible_attention(torch):
+    """Test CUDA before loading weights; fall back only on missing SDPA kernels."""
+    policy = configure_training_attention(torch)
+    if not torch.cuda.is_available():
+        return policy
+    try:
+        checks = attention_preflight(torch)
+    except RuntimeError as exc:
+        missing = any(marker in str(exc).lower() for marker in (
+            "invalid backend", "no available kernel", "no viable backend",
+            "no viable kernel", "no suitable kernel",
+        ))
+        if not missing:
+            raise
+        policy = enable_chunked_sdpa_fallback(torch)
+        policy["fused_kernel_error"] = str(exc)
+        checks = attention_preflight(torch)
+    return {**policy, "preflight": checks}
+
+
 def configure_training_attention(torch):
     """HF 4.57's native-GQA choice otherwise forces T4 to the quadratic math path.
 
@@ -40,15 +60,23 @@ def attention_preflight(torch):
     """Check the actual CUDA forward/backward kernel before downloading Qwen weights."""
     import torch.nn.functional as functional
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    tensors = [torch.randn(1, 4, 64, 128, device="cuda", dtype=dtype, requires_grad=True)
-               for _ in range(3)]
-    output = functional.scaled_dot_product_attention(*tensors, is_causal=True)
-    output.float().square().mean().backward()
-    torch.cuda.synchronize()
-    finite = bool(torch.isfinite(output).all()) and all(bool(torch.isfinite(x.grad).all()) for x in tensors)
-    if not finite:
-        raise RuntimeError("CUDA attention preflight produced nonfinite output/gradient")
-    return {"forward_backward": "passed", "dtype": str(dtype), "shape": [1, 4, 64, 128]}
+    shapes = [(1, 64, 64, False), (2, 64, 64, True), (1, 1, 65, False)]
+    for batch, q_len, k_len, padded in shapes:
+        tensors = [torch.randn(batch, 32, length, 128, device="cuda", dtype=dtype, requires_grad=True)
+                   for length in (q_len, k_len, k_len)]
+        mask = None
+        if padded:
+            mask = torch.ones(batch, 1, q_len, k_len, device="cuda", dtype=torch.bool).tril()
+            mask[..., :3] = False
+        output = functional.scaled_dot_product_attention(
+            *tensors, attn_mask=mask, is_causal=q_len > 1 and mask is None)
+        output.float().square().mean().backward()
+        torch.cuda.synchronize()
+        finite = bool(torch.isfinite(output).all()) and all(bool(torch.isfinite(x.grad).all()) for x in tensors)
+        if not finite:
+            raise RuntimeError("CUDA attention preflight produced nonfinite output/gradient")
+    return {"forward_backward": "passed", "dtype": str(dtype),
+            "cases": ["causal_prefill", "left_padding", "cached_decode"], "heads": 32}
 
 
 def chunked_sdpa_attention_forward(module, query, key, value, attention_mask,
@@ -87,7 +115,8 @@ def chunked_sdpa_attention_forward(module, query, key, value, attention_mask,
             if bias.shape[-2] != 1:
                 bias = bias[..., start:end, :]
         if is_causal:
-            allowed = key_positions[None, :] <= torch.arange(start, end, device=query.device)[:, None]
+            offset = k_length - q_length
+            allowed = key_positions[None, :] <= torch.arange(start+offset, end+offset, device=query.device)[:, None]
             if bias is None:
                 bias = allowed
             elif bias.dtype == torch.bool:

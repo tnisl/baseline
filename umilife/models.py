@@ -22,9 +22,10 @@ def seed_all(seed=42):
 def load_base(model_id=MODEL_ID, four_bit=True, training=False, revision=None):
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-    from .attention import configure_training_attention
+    from .attention import configure_compatible_attention
     if not torch.cuda.is_available(): raise RuntimeError("Qwen3-4B requires an enabled CUDA GPU")
-    configure_training_attention(torch)
+    attention_policy = configure_compatible_attention(torch)
+    print(json.dumps({"attention_policy": attention_policy}), flush=True)
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
     if tokenizer.pad_token_id is None: tokenizer.pad_token = tokenizer.eos_token
@@ -35,6 +36,7 @@ def load_base(model_id=MODEL_ID, four_bit=True, training=False, revision=None):
             bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype)
     model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
     model.config.use_cache = not training
+    model.attention_policy_report = attention_policy
     return tokenizer, model
 
 class Backend:
