@@ -1,12 +1,13 @@
 """Run rationale generation, data preparation, both GLPFT stages and validation."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import sysconfig
-from umilife.core import write_json
+from umilife.core import write_json,digest,dumps,SYSTEMS
 
 def main():
     p=argparse.ArgumentParser();p.add_argument("--data-root",required=True);p.add_argument("--output-dir",required=True)
@@ -42,9 +43,22 @@ def main():
         annotation=["--data-root",a.data_root,"--output",rationales,*model]
         if limit:annotation+=["--limit",limit]
         run("umilife.rationale",annotation)
-        prep=["--data-root",a.data_root,"--output",data,"--rationales",rationales]
-        if limit:prep+=["--limit",limit]
-        run("umilife.data",prep)
+        prepared_manifest=data/"manifest.json"
+        if prepared_manifest.exists():
+            cached=json.loads(prepared_manifest.read_text())
+            expected_prompts=hashlib.sha256(dumps(SYSTEMS).encode()).hexdigest()
+            if (cached["train_sha256"]!=digest(Path(a.data_root)/"train/train.jsonl") or
+                    cached["rationales_sha256"]!=digest(rationales) or
+                    cached["prompts_sha256"]!=expected_prompts):
+                raise ValueError("Prepared dataset cache belongs to different inputs or prompts")
+            for name,checksum in cached["files_sha256"].items():
+                if digest(data/name)!=checksum:
+                    raise ValueError("Prepared dataset cache checksum mismatch: "+name)
+            print("Reuse verified prepared dataset",data,flush=True)
+        else:
+            prep=["--data-root",a.data_root,"--output",data,"--rationales",rationales]
+            if limit:prep+=["--limit",limit]
+            run("umilife.data",prep)
         for stage in ("global","planner","caller","summarizer"):
             completed=out/"adapters"/stage/"lineage.json"
             if completed.exists():

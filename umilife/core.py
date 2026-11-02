@@ -113,7 +113,9 @@ class Agent:
         def generate(role, plan=None, feedback=None):
             remaining = self.deadline_s - (time.monotonic()-start)
             if remaining <= 0: raise TimeoutError("sample deadline")
-            return self.backend.generate(role, messages(role, row, text, specs, trajectory, plan, feedback), remaining)
+            raw=self.backend.generate(role, messages(role, row, text, specs, trajectory, plan, feedback), remaining)
+            trace.append({"role":role,"raw":raw})
+            return raw
         for _ in range(self.max_decisions):
             try:
                 role = "global" if self.mode == "single" else "planner"

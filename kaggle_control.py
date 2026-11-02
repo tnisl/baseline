@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import time
 
 
 def redact(text):
@@ -48,6 +49,7 @@ def main():
                                       force=True,quiet=True)
         print(json.dumps({"files":paths,"next_page_token":bool(token)}))
     else:
+        from requests.exceptions import ChunkedEncodingError,ConnectionError,HTTPError
         if args.seconds<=0:
             raise ValueError("--seconds must be positive")
         class CaptureFinished(Exception):
@@ -57,17 +59,33 @@ def main():
         previous=signal.signal(signal.SIGALRM,finish)
         signal.alarm(args.seconds)
         chunks=deque(maxlen=args.tail)
+        seen=set()
         handle=None
         try:
             if args.output:
                 args.output.parent.mkdir(parents=True,exist_ok=True)
                 handle=args.output.open("w",encoding="utf-8")
-            for event in api.kernels_logs_stream(args.kernel):
-                data=redact(event.get("data",""))
-                chunks.append(data)
-                if handle:
-                    handle.write(data)
-                    handle.flush()
+            while True:
+                try:
+                    for event in api.kernels_logs_stream(args.kernel):
+                        key=(event.get("time"),event.get("stream_name"),event.get("data"))
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        data=redact(event.get("data",""))
+                        chunks.append(data)
+                        if handle:
+                            handle.write(data)
+                            handle.flush()
+                    status=api.kernels_status(args.kernel)
+                    if getattr(status.status,"name",str(status.status)) in ("COMPLETE","ERROR","CANCELLED"):
+                        break
+                except (ChunkedEncodingError,ConnectionError):
+                    pass
+                except HTTPError as exc:
+                    if exc.response is None or exc.response.status_code not in (500,502,503,504):
+                        raise
+                time.sleep(1)
         except CaptureFinished:
             pass
         finally:
