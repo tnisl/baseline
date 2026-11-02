@@ -26,21 +26,19 @@ print("Source commit:",SOURCE_COMMIT)
 subprocess.run([sys.executable,"-m","pip","install","--disable-pip-version-check",
                 "-r",str(SOURCE/"requirements.txt")],check=True)
 ''',
-'''# Discover an already attached copy; competition data is never uploaded to GitHub.
-roots=[p.parent.parent for p in Path("/kaggle/input").rglob("train.jsonl")
-       if p.parent.name=="train" and (p.parent.parent/"public_test/public_test.jsonl").exists()]
-if not roots:
-    archives=list(Path("/kaggle/input").rglob("train+public_test.zip"))
-    if not archives: raise FileNotFoundError("Attach the authorised LifeMate train+public_test dataset.")
-    destination=Path("/kaggle/working/competition_data");destination.mkdir(exist_ok=True)
-    with zipfile.ZipFile(archives[0]) as archive:
+'''# Find manifests without walking thousands of audio/environment directories.
+sys.path.insert(0,str(SOURCE))
+from umilife.paths import find_data_root
+print("Locating competition manifests...",flush=True)
+DATA_ROOT,archive_path=find_data_root("/kaggle/input")
+if DATA_ROOT is None:
+    destination=Path("/tmp/competition_data");destination.mkdir(exist_ok=True)
+    with zipfile.ZipFile(archive_path) as archive:
         for member in archive.infolist():
             target=(destination/member.filename).resolve()
             if not target.is_relative_to(destination.resolve()):raise ValueError("Unsafe archive member")
         archive.extractall(destination)
-    roots=[p.parent.parent for p in destination.rglob("train.jsonl") if p.parent.name=="train"]
-if len(roots)!=1:raise ValueError(f"Expected one data root, found: {roots}")
-DATA_ROOT=roots[0]
+    DATA_ROOT,_=find_data_root(destination)
 expected=json.loads((SOURCE/"docs/data_audit.json").read_text())["train_sha256"]
 actual=hashlib.sha256((DATA_ROOT/"train/train.jsonl").read_bytes()).hexdigest()
 assert actual==expected, "Attached dataset differs from audited release"

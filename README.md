@@ -19,6 +19,20 @@ kaggle kernels status lctrnnguynkhi/lifemate-paper-qwen3-glpft
 kaggle kernels output lctrnnguynkhi/lifemate-paper-qwen3-glpft -p outputs/kaggle
 ~~~
 
+Nếu MCP không gắn dataset hoặc không trả trạng thái/log, dùng SDK qua cùng tài khoản đã cấu hình:
+
+~~~bash
+pip install -r requirements-kaggle.txt
+python kaggle_control.py push notebooks
+python kaggle_control.py status lctrnnguynkhi/lifemate-paper-qwen3-glpft
+python kaggle_control.py logs lctrnnguynkhi/lifemate-paper-qwen3-glpft --seconds 30
+python kaggle_control.py output lctrnnguynkhi/lifemate-paper-qwen3-glpft --output outputs/kaggle
+~~~
+
+SDK nhận credential theo cấu hình Kaggle thông thường. Nếu credential đã nằm trong một biến môi trường tên khác,
+truyền tên biến qua --token-env trước tên lệnh; không truyền giá trị token trên dòng lệnh.
+Notebook tìm manifest theo thư mục đóng gói, không quét toàn bộ cây audio/environment.
+
 Artifact trong /kaggle/working/paper_run/<profile> gồm rationale, prepared data, manifest split,
 adapter global, ba adapter local, lineage/tensor hashes, loss trước/sau, validation metrics, latency và submission public.
 Chỉ source và báo cáo tổng hợp được đưa vào Git; không commit dữ liệu thi, rationale chứa train, model hoặc secrets.
