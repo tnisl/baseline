@@ -39,12 +39,15 @@ Chỉ source và báo cáo tổng hợp được đưa vào Git; không commit d
 
 ## Chạy trực tiếp trên GPU
 
-Giữ bản PyTorch phù hợp CUDA của máy và cài dependency trong môi trường riêng:
+Dùng môi trường riêng với PyTorch 2.9.1/CUDA 12.8 để tránh thay đổi kernel theo image Kaggle:
 
 ~~~bash
-pip install -r requirements.txt
-python finetune.py --data-root ../train+public_test --output-dir outputs/full --profile full
+python setup_training_env.py --venv-dir /tmp/lifemate_training_env
+/tmp/lifemate_training_env/bin/python finetune.py --data-root ../train+public_test --output-dir outputs/full --profile full
 ~~~
+
+T4 dùng FP16; BF16 chỉ bật cho GPU hỗ trợ bằng phần cứng. Loader kiểm tra prefill, padding và cached decode
+trước khi tải model. Nếu image không có kernel SDPA phù hợp, dùng attention đầy đủ theo query tiles có checkpoint.
 
 Mỗi stage chạy trong process riêng để giải phóng VRAM.
 Rationale có cache; trainer hỗ trợ --resume-from-checkpoint.
