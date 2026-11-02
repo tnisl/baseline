@@ -21,17 +21,25 @@ Thời gian chạy bộ kiểm thử cuối: khoảng 6,3 giây.
 
 ResourceWarning về file handle của zaic_tools đến từ thư viện BTC, không sửa thư viện này.
 
-## Kaggle
+## Kaggle — kiểm tra lại MCP
 
-Lệnh save_notebook qua MCP bị từ chối trước khi tạo notebook:
-"MCP tool call requires approval, but approval policy is never".
+Lỗi quyền save_notebook trước đó đã được gỡ trong lần kiểm tra tiếp theo ngày 2026-11-02.
 
-Môi trường local không có Kaggle CLI hay cấu hình KAGGLE_API_TOKEN/KAGGLE_USERNAME/KAGGLE_KEY.
-Không truy xuất hoặc xuất credential của connector.
-Chưa có notebook chạy, chưa có rationale sinh bằng Qwen4B, adapter 4B hoặc kết quả fine-tune/validation GPU.
-Không coi replay gold, tokenizer audit hay test Qwen3 nhỏ là chất lượng của solution đã fine-tune.
+- Đọc quota và notebook của tài khoản lctrnnguynkhi thành công.
+- Còn khoảng 26,8 giờ GPU trong tuần tại thời điểm kiểm tra.
+- Đã tạo và chạy notebook riêng tư thử nghiệm; bản đầu hoàn tất và xác nhận 2 Tesla T4.
+- Lỗi gắn dataset của MCP vẫn còn: cả datasetDataSources và biến thể Setter đều không gắn nguồn.
+  Notebook chạy với thư mục input rỗng, metadata không có data sources.
+  Hiện tượng trùng [Kaggle issue #1140](https://github.com/Kaggle/kaggle-cli/issues/1140).
+- download_dataset qua kết nối hiện có trả được link tải tạm thời cho dataset version 48.
+  Notebook thử nghiệm GLPFT dùng link này để tải vào thư mục tạm, không đưa link hoặc dataset vào Git.
 
-Notebook sẵn sàng trong notebooks/kaggle_glpft.ipynb, metadata để private.
-Cần cho phép Kaggle MCP save_notebook hoặc chạy notebook bằng tài khoản Kaggle đã được cấp quyền dữ liệu.
-Sau khi notebook hoàn tất, lấy các file *.metrics.json, lineage.json và status.json để cập nhật báo cáo.
-Dockerfile và offline bundle là cấu hình triển khai chưa được build/benchmark A30 trong phiên này.
+Notebook kiểm tra:
+https://www.kaggle.com/code/lctrnnguynkhi/lifemate-paper-qwen3-environment-probe
+
+Notebook smoke Qwen3-4B đã gửi chạy:
+https://www.kaggle.com/code/lctrnnguynkhi/lifemate-paper-qwen3-glpft-smoke
+
+Chưa kết luận fine-tune thành công cho đến khi đọc được status, lineage và metrics của notebook smoke.
+Không coi replay gold, tokenizer audit hay test Qwen3 nhỏ là chất lượng solution đã fine-tune.
+Dockerfile và offline bundle chưa được build/benchmark A30 trong phiên này.

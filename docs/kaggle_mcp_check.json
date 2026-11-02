@@ -1,0 +1,17 @@
+{
+  "checked_date": "2026-11-02",
+  "account": "lctrnnguynkhi",
+  "read_access": true,
+  "private_notebook_save": true,
+  "probe_first_version_status": "COMPLETE",
+  "probe_gpus": [
+    "Tesla T4",
+    "Tesla T4"
+  ],
+  "dataset_attachment": "MCP data-source forwarding did not mount requested dataset",
+  "dataset_download_link_available": true,
+  "smoke_notebook_id": 142305365,
+  "smoke_notebook_url": "https://www.kaggle.com/code/lctrnnguynkhi/lifemate-paper-qwen3-glpft-smoke",
+  "smoke_submitted_version": 1,
+  "smoke_result": "pending"
+}
