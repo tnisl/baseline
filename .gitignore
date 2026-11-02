@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.safetensors
+*.bin
+*.pt
+*.zip
+artifacts/
+outputs/
+data/
+models/
+.ipynb_checkpoints/

@@ -1,0 +1,7 @@
+.git
+outputs
+artifacts
+data
+__pycache__
+tests
+notebooks

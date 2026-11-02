@@ -1,0 +1,34 @@
+{
+  "note": "Structural audit using short placeholder rationales, not generated annotation or fine-tuning results.",
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "roles": {
+    "global": {
+      "examples": 5086,
+      "max": 6608,
+      "mean": 2888,
+      "over8192": 0,
+      "over16384": 0
+    },
+    "planner": {
+      "examples": 5086,
+      "max": 4593,
+      "mean": 1912,
+      "over8192": 0,
+      "over16384": 0
+    },
+    "caller": {
+      "examples": 3541,
+      "max": 3583,
+      "mean": 1085,
+      "over8192": 0,
+      "over16384": 0
+    },
+    "summarizer": {
+      "examples": 1434,
+      "max": 4202,
+      "mean": 1400,
+      "over8192": 0,
+      "over16384": 0
+    }
+  }
+}

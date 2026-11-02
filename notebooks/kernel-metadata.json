@@ -1,0 +1,16 @@
+{
+  "id": "lctrnnguynkhi/lifemate-paper-qwen3-glpft",
+  "title": "LifeMate paper Qwen3 GLPFT",
+  "code_file": "kaggle_glpft.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
