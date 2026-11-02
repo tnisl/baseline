@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import sysconfig
 from umilife.core import write_json
 
 def main():
@@ -26,10 +27,14 @@ def main():
             a.revision=HfApi().model_info(a.model).sha
     config=vars(a);write_json(out/"run_config.json",config)
     status={"status":"running","profile":a.profile,"stages":[]}
+    cuda_libs=sorted((Path(sysconfig.get_path("purelib"))/"nvidia").glob("*/lib"))
+    inherited_libs=os.environ.get("LD_LIBRARY_PATH","")
+    library_path=":".join([*(str(p) for p in cuda_libs),inherited_libs])
     def run(module,args):
         command=[sys.executable,"-u","-m",module,*map(str,args)]
         print("RUN",command,flush=True)
-        subprocess.run(command,check=True,env=os.environ|{"CUDA_VISIBLE_DEVICES":"0","TOKENIZERS_PARALLELISM":"false"})
+        subprocess.run(command,check=True,env=os.environ|{"CUDA_VISIBLE_DEVICES":"0",
+            "TOKENIZERS_PARALLELISM":"false","LD_LIBRARY_PATH":library_path})
     model=["--model",a.model,"--revision",a.revision]
     rationales=out/"rationales.jsonl";data=out/"prepared"
     limit=12 if a.profile=="smoke" else 160 if a.profile=="pilot" else None

@@ -80,6 +80,7 @@ def main():
     # Must be configured before CUDA is imported.
     os.environ.setdefault("CUDA_VISIBLE_DEVICES","0");os.environ["TOKENIZERS_PARALLELISM"]="false"
     from .models import load_base,seed_all
+    from .attention import native_bf16_supported
     seed_all(a.seed)
     import torch
     from transformers import Trainer,TrainingArguments
@@ -113,7 +114,7 @@ def main():
         raise ValueError("Local initialization differs from global weights")
     train=Dataset(data/f"{a.stage}.train.jsonl",tokenizer,a.max_length)
     valid=Dataset(data/f"{a.stage}.validation.jsonl",tokenizer,a.max_length,a.eval_limit)
-    bf16=torch.cuda.is_bf16_supported()
+    bf16=native_bf16_supported(torch)
     class CompletionTrainer(Trainer):
         def __init__(self,*args,**kwargs):
             super().__init__(*args,**kwargs);self.model_accepts_loss_kwargs=False

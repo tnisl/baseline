@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 
+def native_bf16_supported(torch):
+    # Recent PyTorch can report emulated BF16 support on a T4.
+    return (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+            and torch.cuda.is_bf16_supported())
+
+
 def configure_compatible_attention(torch):
     """Test CUDA before loading weights; fall back only on missing SDPA kernels."""
     policy = configure_training_attention(torch)
@@ -59,7 +65,7 @@ def configure_training_attention(torch):
 def attention_preflight(torch):
     """Check the actual CUDA forward/backward kernel before downloading Qwen weights."""
     import torch.nn.functional as functional
-    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    dtype = torch.bfloat16 if native_bf16_supported(torch) else torch.float16
     shapes = [(1, 64, 64, False), (2, 64, 64, True), (1, 1, 65, False)]
     for batch, q_len, k_len, padded in shapes:
         tensors = [torch.randn(batch, 32, length, 128, device="cuda", dtype=dtype, requires_grad=True)

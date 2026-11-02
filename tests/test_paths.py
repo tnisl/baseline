@@ -6,6 +6,15 @@ from umilife.paths import find_data_root
 
 
 class Paths(unittest.TestCase):
+    def test_t4_does_not_select_emulated_bfloat16(self):
+        from types import SimpleNamespace
+        from umilife.attention import native_bf16_supported
+        cuda=SimpleNamespace(is_available=lambda:True,
+            get_device_capability=lambda:(7,5),is_bf16_supported=lambda:True)
+        self.assertFalse(native_bf16_supported(SimpleNamespace(cuda=cuda)))
+        cuda.get_device_capability=lambda:(8,0)
+        self.assertTrue(native_bf16_supported(SimpleNamespace(cuda=cuda)))
+
     def test_finds_wrapped_dataset_without_entering_audio_or_environment(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

@@ -22,9 +22,10 @@ subprocess.run(["git","-C",str(SOURCE),"checkout","--detach","FETCH_HEAD"],check
 SOURCE_COMMIT=subprocess.check_output(["git","-C",str(SOURCE),"rev-parse","HEAD"],text=True).strip()
 print("Source commit:",SOURCE_COMMIT)
 ''',
-'''# Keep Kaggle's CUDA-matched PyTorch.
-subprocess.run([sys.executable,"-m","pip","install","--disable-pip-version-check",
-                "-r",str(SOURCE/"requirements.txt")],check=True)
+'''# Use the tested CUDA stack instead of inheriting changing Kaggle packages.
+RUNTIME = Path("/tmp/lifemate_training_env")
+subprocess.run([sys.executable,str(SOURCE/"setup_training_env.py"),"--venv-dir",str(RUNTIME)],check=True)
+PYTHON = str(RUNTIME/"bin/python")
 ''',
 '''# Find manifests without walking thousands of audio/environment directories.
 sys.path.insert(0,str(SOURCE))
@@ -47,7 +48,7 @@ WORK.mkdir(parents=True,exist_ok=True)
 print("Dataset:",DATA_ROOT)
 ''',
 '''# Fresh processes release GPU memory between rationale/global/local/validation phases.
-subprocess.run([sys.executable,"-u",str(SOURCE/"finetune.py"),
+subprocess.run([PYTHON,"-u",str(SOURCE/"finetune.py"),
     "--data-root",str(DATA_ROOT),"--output-dir",str(WORK),"--profile",PROFILE,
     "--model","Qwen/Qwen3-4B-Instruct-2507","--eval-limit","20"],
     cwd=SOURCE,check=True)
