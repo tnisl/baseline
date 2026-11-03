@@ -2,7 +2,7 @@
   "status": "passed",
   "cpu_only": true,
   "gpu_smoke_executed": false,
-  "notebook_sha256": "e5584f88582ba70bf7788b808ecc5a5c1e0114c572bd00e9ba0f2adae705bddb",
+  "notebook_sha256": "57f6078297e9473aa05dd5bfe7af54386fe32508e07e2887097f0486cc69d59c",
   "tests": [
     "All 1545 gold episodes replayed with fixed 1445/100 split",
     "All role targets validate and fit 8192 without dropping records",
@@ -83,5 +83,26 @@
     "global_epochs": 1,
     "profile": "smoke"
   },
-  "paper_note": "2402.01030 uses executable Python actions; TypeScript input contracts plus JSON actions are our adaptation."
+  "paper_note": "2402.01030 uses executable Python actions; TypeScript input contracts plus JSON actions are our adaptation.",
+  "policy_version": "english-typescript-t4-v2-anti-repeat",
+  "anti_repeat_revision": {
+    "gpu_executed": false,
+    "prompt_only": true,
+    "runtime_write_guard": false,
+    "checks": [
+      "English instructions",
+      "gold canary exclusion",
+      "embedded source matches runtime",
+      "new output directory",
+      "conservative context bound below 8192"
+    ],
+    "conservative_context_bounds": {
+      "planner": 6688,
+      "caller": 5946,
+      "summarizer": 4151,
+      "global": 6713
+    },
+    "prior_full_data_audit_policy": "english-typescript-t4-v1",
+    "bound_method": "Previous maximum full record length plus entire new system token length and 32-token margin; overcounts the replaced old system."
+  }
 }

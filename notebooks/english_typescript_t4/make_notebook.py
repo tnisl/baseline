@@ -22,7 +22,7 @@ T4 optimizations: compact TypeScript contracts; loss projection chunks enlarged 
 
 No mid-stage optimizer resume. Use a new RUN_NAME after a failed stage. The official split.txt and original rationale hash are preserved. No held-out labels/examples are added to prompts or optimizer data.
 '''
-c[1]['source']=c[1]['source'].replace("RUN_NAME = 'full_2gpu_chunked_loss_v2'", "PROFILE = 'smoke'  # 'smoke' or 'full'\nRUN_NAME = 'english_ts_t4_v1'\nLOSS_CHUNK = 256  # 32 is the old conservative fallback\nEVAL_STEPS = 100\nassert PROFILE in ('smoke','full') and LOSS_CHUNK>0 and EVAL_STEPS>0")
+c[1]['source']=c[1]['source'].replace("RUN_NAME = 'full_2gpu_chunked_loss_v2'", "PROFILE = 'smoke'  # 'smoke' or 'full'\nRUN_NAME = 'english_ts_t4_v2_anti_repeat'\nLOSS_CHUNK = 256  # 32 is the old conservative fallback\nEVAL_STEPS = 100\nassert PROFILE in ('smoke','full') and LOSS_CHUNK>0 and EVAL_STEPS>0")
 c[1]['source']=c[1]['source'].replace("Path('/kaggle/working/paper_finetune_2gpu_source')", "Path('/kaggle/working/paper_en_ts_source')").replace("Path('/kaggle/working/paper_finetune_2gpu')/RUN_NAME", "Path('/kaggle/working/paper_en_ts_t4')/RUN_NAME")
 s=c[2]['source'];tree=ast.parse(s);first=tree.body[0];lines=s.splitlines(True);s=''.join(lines[first.end_lineno:]);s='PAYLOAD='+repr(payload)+'\n'+s
 s=s.replace(next(line for line in s.splitlines() if line.startswith('RUNTIME_SHA=')),f'RUNTIME_SHA={sha!r}')

@@ -60,3 +60,9 @@ python notebooks/english_typescript_t4/checks.py
 ```
 
 CPU checks cover English instructions, held-out canary exclusion, TypeScript contract generation, notebook compilation, completion-loss/gradient equivalence on a tiny Qwen3, two-rank optimizer/evaluation/checkpoint behavior and the smoke step cap. Actual package compatibility, VRAM and speed on T4 are tested when the user runs the notebook.
+
+## Anti-repeat prompt revision
+
+Policy `english-typescript-t4-v2-anti-repeat` adds explicit objective-completion tracking in the instructions: Planner/Global should proceed only for pending objectives and choose Summarizer after all requested effects succeed. Confirmed writes are not repeated for verification or acknowledgement; different spelling/identifiers do not justify the same effect again. Intentional user-requested repetition and justified retries after unsuccessful execution remain allowed. Item status fields (for example an unfinished task) are distinguished from failure to create/update the item. Caller keeps its existing JSON contract; it does not acquire a finish route.
+
+This is a prompt-only change, without a runtime write-deduplication guard or held-out-specific examples. The new default RUN_NAME is `english_ts_t4_v2_anti_repeat`; rerun smoke and retrain adapters under the updated prompt hash. Old adapters are not treated as newly validated results. GPU behavior and quality after this revision have not been measured.
