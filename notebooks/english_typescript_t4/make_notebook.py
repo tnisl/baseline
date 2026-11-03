@@ -96,7 +96,9 @@ c[11]['source']+='\nOriginal Codex rationale strings are reused unchanged; Engli
 for i,cell in enumerate(c):
  cell['id']=f'en-ts-t4-{i:02}'
  if cell['cell_type']=='code':ast.parse(cell['source'],filename=cell['id']);cell['outputs']=[];cell['execution_count']=None
+meta=json.loads((HERE.parent/'finetune_2gpu/kernel-metadata.json').read_text());meta.update(id='anartt/lifemate-english-typescript-t4',title='LifeMate English TypeScript T4',code_file='kaggle_en_ts_t4.ipynb')
+meta['dataset_sources']=[v.replace('cymeu4l0t/lifemate','anartt/lifemate') for v in meta['dataset_sources']]
+c[3]['source']=c[3]['source'].replace('cymeu4l0t/lifemate','anartt/lifemate')
 (HERE/'kaggle_en_ts_t4.ipynb').write_text(json.dumps(base,ensure_ascii=False,indent=1)+'\n')
-meta=json.loads((HERE.parent/'finetune_2gpu/kernel-metadata.json').read_text());meta.update(id='cymeu4l0t/lifemate-english-typescript-t4',title='LifeMate English TypeScript T4',code_file='kaggle_en_ts_t4.ipynb')
 (HERE/'kernel-metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
 print('Built',sha)

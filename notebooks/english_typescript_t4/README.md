@@ -48,7 +48,7 @@ For full training, set `PROFILE = 'full'` and Run All. The notebook always verif
 
 Full mode trains all four stages on all 1,445 training requests, with no max-step pilot cap, then evaluates all 100 held-out episodes using supplied ASR and vLLM inference batch 4. ASR is never fine-tuned. Outputs are under `/kaggle/working/paper_en_ts_t4/<RUN_NAME>/{prepared,smoke,full}`. A successful smoke cannot guarantee every full-data batch fits or that the full run finishes within Kaggle's session limit.
 
-Attach private datasets under `cymeu4l0t`: `zaloai-dataset`, `lifemate-codex-workflow-rationales`, and `lifemate-supplied-zipformer-asr`.
+Attach `cymeu4l0t/zaloai-dataset` (accessible shared input), plus private `anartt/lifemate-codex-workflow-rationales` and `anartt/lifemate-supplied-zipformer-asr`. The notebook is saved to the currently authenticated account `anartt`.
 
 ## Build and check
 

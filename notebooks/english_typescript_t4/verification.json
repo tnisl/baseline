@@ -2,7 +2,7 @@
   "status": "passed",
   "cpu_only": true,
   "gpu_smoke_executed": false,
-  "notebook_sha256": "4d2dcffe199c744bc141686c0da3d1b3cdb0973f9017e3298d13c557fd0377ec",
+  "notebook_sha256": "e5584f88582ba70bf7788b808ecc5a5c1e0114c572bd00e9ba0f2adae705bddb",
   "tests": [
     "All 1545 gold episodes replayed with fixed 1445/100 split",
     "All role targets validate and fit 8192 without dropping records",
