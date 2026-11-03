@@ -9,6 +9,7 @@ md('''
 # Version 6 recovery: validation → public-test inference
 
 Select GPU T4 (T4 ×2 also works; inference uses GPU 0), enable Internet and Run All.
+Input `cymeu4l0t/lifemate-v6-completed-adapters` must use dataset version 2 or later; version 1 omitted the adapter directories. Refresh/update this input in the Kaggle editor before starting an existing session.
 No training. Exact old Vietnamese prompt policy and old JSON tool presentation from the completed version-6 training experiment. No English/TypeScript or anti-repeat policy changes.
 
 **Default mode: trained Planner; Caller and Summarizer use the completed Global adapter.** This is an explicit fallback configuration: those two local adapters were never trained. Optional MODE='single' uses Global for the single-agent workflow.
@@ -63,6 +64,9 @@ ASR_MODEL=input_dir('lifemate-supplied-zipformer-asr','model_manifest.json')
 assert ADAPTERS is not None and ASR_MODEL is not None,'Attach completed v6 adapters and supplied ASR datasets'
 manifest=json.loads((ADAPTERS/'checkpoint_manifest.json').read_text())
 assert manifest['version']==6 and manifest['complete_roles']==['global','planner']
+missing=[name for name in manifest['files'] if not (ADAPTERS/name).is_file()]
+assert not missing, f'Incomplete checkpoint input: {missing}. Update lifemate-v6-completed-adapters to dataset version 2 or later.'
+print('Checkpoint input:',ADAPTERS,'Files:',len(manifest['files']))
 for name,expected in manifest['files'].items():assert hashlib.sha256((ADAPTERS/name).read_bytes()).hexdigest()==expected,name
 from umilife.prompt_policy import PROMPTS,digest,POLICY_VERSION
 for role in ('global','planner'):

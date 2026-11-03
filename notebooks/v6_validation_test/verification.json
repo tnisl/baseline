@@ -1,7 +1,7 @@
 {
   "status": "passed",
   "gpu_run": false,
-  "notebook_sha256": "609a864308c652f31c9866261b0e78b96f3ad9c82294ec0b6e83d022940fa3db",
+  "notebook_sha256": "bcb1ec840af9da198250512a5ef3acdb2d929667c185fd5cb24629dbc5ac864e",
   "checks": [
     "Exact old prompt hash matches both completed lineages",
     "Public split uses no labels or oracle transcripts",

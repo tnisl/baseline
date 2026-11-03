@@ -2,6 +2,8 @@
 
 Open `kaggle_v6_validation_test.ipynb`, select a T4 GPU, enable Internet and Run All. This notebook is inference only; it does not train missing local adapters. It uses the completed version-6 Global and Planner adapters, preserved in private input `cymeu4l0t/lifemate-v6-completed-adapters`.
 
+Use **dataset version 2 or later**. The initial dataset upload skipped the nested adapter folders and contained only metadata. Version 2 includes `global/adapter_model.safetensors` and `planner/adapter_model.safetensors`, plus their configs and tokenizers. If an existing editor still shows the old input, update the dataset version under Input, or remove and re-add this private dataset. The notebook checks for all manifest files before loading weights.
+
 Default `MODE='multi_fallback'` implements the requested configuration:
 
 | Role | Actual adapter |
