@@ -2,7 +2,7 @@
   "status": "passed",
   "cpu_only": true,
   "gpu_run": false,
-  "runtime_sha256": "258897097e18252ce0b08aa2492515715ad36e64df07a81ea44fa0403fb81d77",
+  "runtime_sha256": "71ab8ec8d3849375706e9ca590195412933cc5167939cb6ee80c4b44bc243c13",
   "train_episodes": 1445,
   "validation_episodes": 100,
   "counts": {
@@ -72,6 +72,9 @@
     "four-workflow controller synthetic checks",
     "typed argument grammar and completion review",
     "equal rank batch counts",
+    "small Qwen3 chunked completion loss and gradient equivalence to masked causal CE",
+    "two-rank Qwen3 chunked-loss training, evaluation and checkpoint restore",
+    "configurable train batch 2 and eval batch 1 on two ranks",
     "nbformat 4 validation"
   ],
   "known_limits": [
@@ -80,5 +83,13 @@
     "templated summary labels",
     "zero-call give_up convention preserved"
   ],
-  "notebook_sha256": "29b4d06dd0bb38b01d77dabad9f2612ecad0c9d22401e7c072592f2ffdd0f048"
+  "notebook_sha256": "756744a78df5af35352fb2c6d66dbf06647995ec85220d6f4d98e815eb8510a8",
+  "fixes": {
+    "v3": "positive configurable batches propagated to runtime",
+    "v4": "Unsloth hidden states + supervised-token-only checkpointed CE in chunks of 32",
+    "default_train_batch_per_gpu": 4,
+    "default_eval_batch_per_gpu": 4,
+    "inference_batch": 4,
+    "new_gpu_test_run": false
+  }
 }

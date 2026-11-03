@@ -7,8 +7,8 @@ Open [the Kaggle notebook](https://www.kaggle.com/code/cymeu4l0t/lifemate-qwen3-
 | Model | Qwen/Qwen3-4B-Instruct-2507, revision `cdbee75f17c01a7cc42f958dc650907174af0554` |
 | Fine-tuning | Unsloth NF4 QLoRA, rank 16, alpha 32, explicit PyTorch DDP |
 | GPUs | Exactly 2; one model replica/process per GPU |
-| Training micro-batch | **4 per GPU**, global and all local stages |
-| Validation-loss batch | **4 per GPU**; every held-out record evaluated once |
+| Training micro-batch | **4 per GPU by default**, global and all local stages |
+| Validation-loss batch | **4 per GPU by default**; every held-out record evaluated once |
 | Gradient accumulation | 1; effective training batch **8** |
 | Epoch limits | Global 1, planner 1, caller 1, summarizer 2 |
 | LR | Global 5e-5; local 1e-5; cosine schedule; 3% warmup |
@@ -44,6 +44,14 @@ The original Codex rationale artifact is unchanged (SHA256 `d14768df60e155521a57
 Summarizer targets are concise, deterministic facts from the final gold tool observation, capped at 180 answer tokens. This replaces the old full JSON observation dump that could exceed inference output limits. These are synthetic summaries, not human-written responses. The original zero-call → `give_up` convention is retained, including some no-op/cancellation requests; that taxonomy remains an acknowledged mismatch with the policy.
 
 Training uses the provided clean transcripts. Post-training validation uses ASR for current audio and user history, with no oracle fallback. Held-out labels serve only validation loss and scoring after predictions; they do not enter optimizer updates or inference prompts. The prompt policy was developed using earlier validation diagnostics, so this is a development split, not a pristine test set.
+
+## Fixes after versions 3 and 4
+
+The configuration guard now accepts positive training and validation batch sizes and passes them through the DDP sampler, loss evaluation, metadata, and CLI. Defaults remain 4/GPU; inference batch stays 4. Changing a batch requires a new RUN_NAME. The original equality assertion no longer prevents smaller batches.
+
+Unsloth returns hidden states instead of invoking its fused CE implementation. Only positions with supervised next-token labels are projected through lm_head, in chunks of 32 tokens. During training, each chunk projection/loss is checkpointed and recomputed during backward. This avoids the 4.31 GiB vocabulary tensor allocation that failed before the first optimizer step. The causal mask and token-mean objective are preserved. CUDA expandable segments are also enabled to reduce fragmentation.
+
+A small Qwen3 on CPU verifies loss and gradient equivalence against ordinary masked causal CE. Two-rank CPU training additionally checks the new loss, uneven validation and best checkpoint restoration. The new loss path has not yet been verified on Kaggle GPUs.
 
 ## Verification
 
