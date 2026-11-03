@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "gpu_run": false,
+  "notebook_sha256": "609a864308c652f31c9866261b0e78b96f3ad9c82294ec0b6e83d022940fa3db",
+  "checks": [
+    "Exact old prompt hash matches both completed lineages",
+    "Public split uses no labels or oracle transcripts",
+    "All synthetic test IDs exported",
+    "Completed batches reused",
+    "Batch-boundary budget pauses with exit 75",
+    "Notebook AST/nbformat"
+  ],
+  "adapter_mapping": {
+    "planner": "planner",
+    "caller": "global",
+    "summarizer": "global"
+  },
+  "validation_ids": 100,
+  "default_mode": "multi_fallback"
+}

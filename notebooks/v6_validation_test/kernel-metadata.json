@@ -1,0 +1,18 @@
+{
+  "id": "cymeu4l0t/lifemate-v6-validation-public-test",
+  "title": "LifeMate v6 validation public test",
+  "code_file": "kaggle_v6_validation_test.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset",
+    "cymeu4l0t/lifemate-v6-completed-adapters",
+    "cymeu4l0t/lifemate-supplied-zipformer-asr"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
