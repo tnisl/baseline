@@ -1,0 +1,84 @@
+{
+  "status": "passed",
+  "cpu_only": true,
+  "gpu_run": false,
+  "runtime_sha256": "258897097e18252ce0b08aa2492515715ad36e64df07a81ea44fa0403fb81d77",
+  "train_episodes": 1445,
+  "validation_episodes": 100,
+  "counts": {
+    "planner.train": 4759,
+    "caller.train": 3314,
+    "global.train": 4759,
+    "summarizer.train": 1334,
+    "planner.validation": 327,
+    "caller.validation": 227,
+    "global.validation": 327,
+    "summarizer.validation": 100
+  },
+  "tokenization": {
+    "planner.train": {
+      "records": 4759,
+      "max_tokens": 6408,
+      "max_target_tokens": 62
+    },
+    "caller.train": {
+      "records": 3314,
+      "max_tokens": 5740,
+      "max_target_tokens": 91
+    },
+    "global.train": {
+      "records": 4759,
+      "max_tokens": 6376,
+      "max_target_tokens": 207
+    },
+    "summarizer.train": {
+      "records": 1334,
+      "max_tokens": 4068,
+      "max_target_tokens": 180
+    },
+    "planner.validation": {
+      "records": 327,
+      "max_tokens": 5568,
+      "max_target_tokens": 61
+    },
+    "caller.validation": {
+      "records": 227,
+      "max_tokens": 5115,
+      "max_target_tokens": 92
+    },
+    "global.validation": {
+      "records": 327,
+      "max_tokens": 5488,
+      "max_target_tokens": 167
+    },
+    "summarizer.validation": {
+      "records": 100,
+      "max_tokens": 3367,
+      "max_target_tokens": 140
+    }
+  },
+  "rationale_thoughts_matched_across_global_planner": 7082,
+  "tests": [
+    "2-rank Gloo token-weighted gradient equivalence",
+    "2-rank uneven validation loss",
+    "reentrant checkpointing with static-graph DDP",
+    "2-rank best checkpoint restoration and early stopping",
+    "all 1545 gold episodes replayed",
+    "all role targets validate against inference schemas",
+    "all tokenized examples fit 8192, no drop",
+    "masked assistant-only loss",
+    "fixed split and authored rationale integrity",
+    "prompt canary exclusion",
+    "four-workflow controller synthetic checks",
+    "typed argument grammar and completion review",
+    "equal rank batch counts",
+    "nbformat 4 validation"
+  ],
+  "known_limits": [
+    "Qwen/Unsloth/CUDA DDP not run",
+    "no mid-stage optimizer resume",
+    "templated summary labels",
+    "zero-call give_up convention preserved"
+  ],
+  "notebook_sha256": "29b4d06dd0bb38b01d77dabad9f2612ecad0c9d22401e7c072592f2ffdd0f048"
+}
