@@ -1,5 +1,13 @@
 # LifeMate — α-UMi với Qwen3-4B
 
+## Notebook mới: English + TypeScript trên T4
+
+Xem [hướng dẫn English/TypeScript](notebooks/english_typescript_t4/README.md) và
+[notebook có smoke fine-tune](notebooks/english_typescript_t4/kaggle_en_ts_t4.ipynb).
+Mặc định chạy smoke cả bốn stage trước; full giữ global 1 epoch, dùng prompt tiếng Anh,
+giao diện TypeScript, loss chunk 256 và validation mỗi 100 steps. Đây là điều chỉnh
+schema theo yêu cầu, không phải triển khai đầy đủ CodeAct của arXiv:2402.01030.
+
 Triển khai phương pháp của paper.pdf: global QLoRA → ba adapter Planner / Caller / Summarizer,
 cùng backbone Qwen/Qwen3-4B-Instruct-2507. Rationale được sinh từ train bằng Qwen với chỉ observation trước bước hiện tại.
 Đọc [đối chiếu phương pháp](docs/method.md) và [kiểm tra dữ liệu](docs/data_audit.json).

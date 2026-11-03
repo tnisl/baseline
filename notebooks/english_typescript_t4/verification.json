@@ -1,0 +1,87 @@
+{
+  "status": "passed",
+  "cpu_only": true,
+  "gpu_smoke_executed": false,
+  "notebook_sha256": "4d2dcffe199c744bc141686c0da3d1b3cdb0973f9017e3298d13c557fd0377ec",
+  "tests": [
+    "All 1545 gold episodes replayed with fixed 1445/100 split",
+    "All role targets validate and fit 8192 without dropping records",
+    "All 147 tool TypeScript declarations pass tsc --strict --noEmit",
+    "English instruction and gold-input canary checks",
+    "Tiny Qwen3 loss and gradient equivalence",
+    "Two-rank Qwen3 optimization, evaluation and checkpoint restoration with smoke cap",
+    "Notebook AST and nbformat validation",
+    "Smoke before full control-flow and profile-change compatibility"
+  ],
+  "counts": {
+    "planner.train": 4759,
+    "caller.train": 3314,
+    "global.train": 4759,
+    "summarizer.train": 1334,
+    "planner.validation": 327,
+    "caller.validation": 227,
+    "global.validation": 327,
+    "summarizer.validation": 100
+  },
+  "tokenization": {
+    "planner.train": {
+      "records": 4759,
+      "max_tokens": 6152,
+      "max_target_tokens": 62
+    },
+    "caller.train": {
+      "records": 3314,
+      "max_tokens": 5453,
+      "max_target_tokens": 91
+    },
+    "global.train": {
+      "records": 4759,
+      "max_tokens": 6231,
+      "max_target_tokens": 207
+    },
+    "summarizer.train": {
+      "records": 1334,
+      "max_tokens": 3733,
+      "max_target_tokens": 180
+    },
+    "planner.validation": {
+      "records": 327,
+      "max_tokens": 5366,
+      "max_target_tokens": 61
+    },
+    "caller.validation": {
+      "records": 227,
+      "max_tokens": 4785,
+      "max_target_tokens": 92
+    },
+    "global.validation": {
+      "records": 327,
+      "max_tokens": 5397,
+      "max_target_tokens": 167
+    },
+    "summarizer.validation": {
+      "records": 100,
+      "max_tokens": 3032,
+      "max_target_tokens": 140
+    }
+  },
+  "previous_max_tokens": {
+    "planner.train": 6408,
+    "caller.train": 5740,
+    "global.train": 6376,
+    "summarizer.train": 4068,
+    "planner.validation": 5568,
+    "caller.validation": 5115,
+    "global.validation": 5488,
+    "summarizer.validation": 3367
+  },
+  "speedup_measured": false,
+  "defaults": {
+    "loss_chunk": 256,
+    "eval_steps": 100,
+    "micro_batch_per_gpu": 4,
+    "global_epochs": 1,
+    "profile": "smoke"
+  },
+  "paper_note": "2402.01030 uses executable Python actions; TypeScript input contracts plus JSON actions are our adaptation."
+}

@@ -1,0 +1,18 @@
+{
+  "id": "cymeu4l0t/lifemate-english-typescript-t4",
+  "title": "LifeMate English TypeScript T4",
+  "code_file": "kaggle_en_ts_t4.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset",
+    "cymeu4l0t/lifemate-codex-workflow-rationales",
+    "cymeu4l0t/lifemate-supplied-zipformer-asr"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
