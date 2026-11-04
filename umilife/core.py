@@ -102,7 +102,7 @@ def parse_json(text):
     return value
 
 class Agent:
-    def __init__(self, backend, max_calls=10, max_decisions=16, deadline_s=30, mode="multi"):
+    def __init__(self, backend, max_calls=7, max_decisions=7, deadline_s=30, mode="multi"):
         self.backend, self.max_calls = backend, max_calls
         self.max_decisions, self.deadline_s, self.mode = max_decisions, deadline_s, mode
 

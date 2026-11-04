@@ -57,10 +57,6 @@ class Backend:
                 else:
                     self.model.load_adapter(path, adapter_name=role)
         self.model.eval()
-        self.grammar_tokenizer=None
-        if self.roles:
-            from lmformatenforcer.integrations.transformers import build_token_enforcer_tokenizer_data
-            self.grammar_tokenizer=build_token_enforcer_tokenizer_data(self.tokenizer)
         self.max_context, self.max_new_tokens = max_context, max_new_tokens
         if not 1 < max_context <= 16384: raise ValueError("Competition context limit is 16384")
         adapter_parameters = sum(p.numel() for n,p in self.model.named_parameters() if "lora_" in n)
@@ -90,18 +86,11 @@ class Backend:
         class Deadline(StoppingCriteria):
             def __call__(self, input_ids, scores, **kwargs):
                 return time.monotonic() >= deadline
-        kwargs={}
-        if self.grammar_tokenizer is not None:
-            from lmformatenforcer import JsonSchemaParser
-            from lmformatenforcer.integrations.transformers import build_transformers_prefix_allowed_tokens_fn
-            from .grammar import role_schema
-            kwargs["prefix_allowed_tokens_fn"]=build_transformers_prefix_allowed_tokens_fn(
-                self.grammar_tokenizer,JsonSchemaParser(role_schema(role)))
         with torch.inference_mode():
             output = self.model.generate(**inputs, max_new_tokens=new_tokens, do_sample=False,
                 use_cache=True, pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
-                stopping_criteria=StoppingCriteriaList([Deadline()]),**kwargs)
+                stopping_criteria=StoppingCriteriaList([Deadline()]))
         if time.monotonic() >= deadline: raise TimeoutError("Generation exceeded sample deadline")
         return self.tokenizer.batch_decode(output[:,inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 

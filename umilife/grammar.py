@@ -1,4 +1,4 @@
-"""Output contracts for guided JSON decoding; tool values still come from the model."""
+"""JSON output contracts; these do not constrain token generation."""
 def object_schema(properties,required):
     return {"type":"object","properties":properties,"required":required,"additionalProperties":False}
 

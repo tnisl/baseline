@@ -1,9 +1,0 @@
-{
-  "dataset": "cymeu4l0t/lifemate-v6-planner-validation-inputs",
-  "dataset_version": 1,
-  "remote_download_hashes_match": true,
-  "samples": 327,
-  "episodes": 100,
-  "original_validation_sha256": "120bd4585edec7b786201ab28f853bfe577dd377e53862510932c90da75d4e6c",
-  "current_labels_separate": true
-}

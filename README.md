@@ -1,119 +1,54 @@
-# LifeMate — α-UMi với Qwen3-4B
+# LifeMate — Planner / Caller với Qwen3-4B
 
-## Notebook mới: English + TypeScript trên T4
+Repo hiện giữ ba notebook đang dùng. Prompt tiếng Anh, tool schema TypeScript; Planner chọn bước tiếp theo, Caller điền arguments, tool result quay lại Planner. Route `summarizer` kết thúc workflow mà không cần sinh bằng một model Summarizer.
 
-Xem [hướng dẫn English/TypeScript](notebooks/english_typescript_t4/README.md) và
-[notebook có smoke fine-tune](notebooks/english_typescript_t4/kaggle_en_ts_t4.ipynb).
-Mặc định chạy smoke cả bốn stage trước; full giữ global 1 epoch, dùng prompt tiếng Anh,
-giao diện TypeScript, loss chunk 256 và validation mỗi 100 steps. Đây là điều chỉnh
-schema theo yêu cầu, không phải triển khai đầy đủ CodeAct của arXiv:2402.01030.
+| Mục đích | Mã nguồn | Kaggle |
+|---|---|---|
+| Finetune Planner + Caller | [planner_caller_compiled](notebooks/planner_caller_compiled/README.md) | [Training](https://www.kaggle.com/code/anartt/lifemate-planner-caller-compiled) |
+| Validation đầy đủ, 245 mẫu | [concise_validation_fast](notebooks/concise_validation_fast/README.md) | [Validation](https://www.kaggle.com/code/anartt/lifemate-concise-validation-fast) |
+| Kiểm tra 4 mẫu từng lỗi | [unguided_failure_subset](notebooks/unguided_failure_subset/README.md) | [Diagnostic](https://www.kaggle.com/code/anartt/lifemate-unguided-failure-subset) |
 
-Triển khai phương pháp của paper.pdf: global QLoRA → ba adapter Planner / Caller / Summarizer,
-cùng backbone Qwen/Qwen3-4B-Instruct-2507. Rationale được sinh từ train bằng Qwen với chỉ observation trước bước hiện tại.
-Đọc [đối chiếu phương pháp](docs/method.md) và [kiểm tra dữ liệu](docs/data_audit.json).
+Notebook được tạo bằng `make_notebook.py` trong từng thư mục và nhúng runtime đi kèm. Core được chốt ở commit cũ để tái lập; runtime nhúng là phần ghi đè có hiệu lực. Sửa `runtime/` rồi build lại notebook, không chỉ sửa payload trong `.ipynb`.
 
-## Chạy Kaggle
+## Cấu hình hiện tại
 
-Notebook: [notebooks/kaggle_glpft.ipynb](notebooks/kaggle_glpft.ipynb).
-Notebook riêng tư, GPU T4, Internet bật để tải model và cài dependency; dữ liệu gắn từ cymeu4l0t/zaloai-dataset.
-Notebook kiểm tra SHA256 train phải trùng bản audit, chốt revision Hugging Face và ghi commit nguồn.
-Chọn PROFILE = "smoke", "pilot" hoặc "full" trong cell đầu.
+- Backbone: `Qwen/Qwen3-4B-Instruct-2507`, revision `cdbee75f17c01a7cc42f958dc650907174af0554`.
+- Train: Unsloth QLoRA rank16/alpha32, FP16 trên 2 T4; micro-batch train/eval4 mỗi GPU, batch hiệu dụng8. Compile bật, cosine LR/warmup, early-stopping patience3, checkpoint mỗi25 updates. Mặc định train local Planner và Caller; Global vẫn là tùy chọn.
+- Split: 1300 train /245 valid, giữ nguyên ID trong các runtime; không dùng nhãn valid làm đầu vào model.
+- Inference: vLLM, batch4 mỗi GPU; ASR Zipformer được cung cấp chạy cho audio hiện tại và history. Không train ASR.
+- **Không dùng token-level enforcer ở Planner/Caller**, kể cả backend Transformers dự phòng. Giữ JSON/schema validation sau sinh, kiểm tra tool arguments và tối đa một lượt sửa mỗi node trong mỗi quyết định.
+- Mỗi mẫu tối đa **7 quyết định /7 tool calls thực thi**. Đọc trùng bị chặn vẫn tiêu tốn một quyết định. Giới hạn này chặn vòng lặp kéo dài, không sửa lỗi suy luận nghiệp vụ.
 
-Nếu Kaggle CLI đã xác thực:
+Các lock vLLM vẫn chứa `lm-format-enforcer` vì đó là dependency gián tiếp của phiên bản vLLM đã chốt. Package không được gắn vào sampler hoặc dùng để lọc token; xóa riêng khỏi lock sẽ làm môi trường thiếu dependency. `requirements.txt` của backend Transformers đã bỏ dependency trực tiếp này.
 
-~~~bash
-kaggle kernels push -p notebooks
-kaggle kernels status lctrnnguynkhi/lifemate-paper-qwen3-glpft
-kaggle kernels output lctrnnguynkhi/lifemate-paper-qwen3-glpft -p outputs/kaggle
-~~~
+## Cấu trúc
 
-Nếu MCP không gắn dataset hoặc không trả trạng thái/log, dùng SDK qua cùng tài khoản đã cấu hình:
+```text
+notebooks/
+  planner_caller_compiled/    # Train + checkpoint/resume
+  concise_validation_fast/   # Full valid, hai worker GPU
+  unguided_failure_subset/   # Chẩn đoán bốn mẫu
+umilife/                     # Core, backend Transformers, train/evaluate helpers
+tests/                      # CPU contracts và kiểm tra tích hợp tùy dependency
+docs/                       # Đối chiếu paper, audit và provenance rationale
+outputs/codex_rationales/   # Rationale cũ được giữ nguyên, không commit Git
+```
 
-~~~bash
-pip install -r requirements-kaggle.txt
-python kaggle_control.py push notebooks
-python kaggle_control.py status lctrnnguynkhi/lifemate-paper-qwen3-glpft
-python kaggle_control.py logs lctrnnguynkhi/lifemate-paper-qwen3-glpft --seconds 30
-python kaggle_control.py output lctrnnguynkhi/lifemate-paper-qwen3-glpft --output outputs/kaggle
-~~~
-
-SDK nhận credential theo cấu hình Kaggle thông thường. Nếu credential đã nằm trong một biến môi trường tên khác,
-truyền tên biến qua --token-env trước tên lệnh; không truyền giá trị token trên dòng lệnh.
-Notebook tìm manifest theo thư mục đóng gói, không quét toàn bộ cây audio/environment.
-
-Artifact trong /kaggle/working/paper_run/<profile> gồm rationale, prepared data, manifest split,
-adapter global, ba adapter local, lineage/tensor hashes, loss trước/sau, validation metrics, latency và submission public.
-Chỉ source và báo cáo tổng hợp được đưa vào Git; không commit dữ liệu thi, rationale chứa train, model hoặc secrets.
-
-## Chạy trực tiếp trên GPU
-
-Dùng môi trường riêng với PyTorch 2.9.1/CUDA 12.8 để tránh thay đổi kernel theo image Kaggle:
-
-~~~bash
-python setup_training_env.py --venv-dir /tmp/lifemate_training_env
-/tmp/lifemate_training_env/bin/python finetune.py --data-root ../train+public_test --output-dir outputs/full --profile full
-~~~
-
-T4 dùng FP16; BF16 chỉ bật cho GPU hỗ trợ bằng phần cứng. Loader kiểm tra prefill, padding và cached decode
-trước khi tải model. Nếu image không có kernel SDPA phù hợp, dùng attention đầy đủ theo query tiles có checkpoint.
-
-Mỗi stage chạy trong process riêng để giải phóng VRAM.
-Rationale có cache; trainer hỗ trợ --resume-from-checkpoint.
-Runner từ chối ghi đè adapter hoàn tất; tiếp tục các stage còn thiếu bằng lệnh module:
-
-~~~bash
-python -m umilife.train --stage caller --data-dir outputs/full/prepared \
-  --output-dir outputs/full --global-adapter outputs/full/adapters/global
-~~~
-
-Truyền đúng --revision trong run_config.json khi chạy riêng stage.
-Inference bằng model/adapter đã tải trên ổ đĩa:
-
-~~~bash
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python run.py \
-  --data-root /data --split public_test --model models/qwen \
-  --adapter-dir models/adapters --asr-model models/whisper --output result/submission.jsonl --fp16
-~~~
-
-Inference đọc tool qua đúng zaic_tools của split, không lấy dữ liệu app bằng cách mở environment.
-Mặc định deadline 30 giây kể cả ASR. Trace giữ lý do dừng, số giây, câu trả lời và tool observations.
+Các script gốc `finetune.py`, `make_notebook.py`, `run.py` và Dockerfile thuộc luồng cũ; giữ để tương thích và bảo toàn thay đổi local. Luồng đang dùng được chỉ rõ trong bảng notebook phía trên. Không dùng adapter mới với prompt cũ chỉ vì chúng cùng backbone.
 
 ## Kiểm tra
 
-~~~bash
+```bash
 python -B -m unittest discover -s tests -v
-python audit_data.py --data-root ../train+public_test --verify-tools --output docs/data_audit.json
-~~~
+python notebooks/planner_caller_compiled/check_contracts.py
+python notebooks/concise_validation_fast/checks.py
+python notebooks/unguided_failure_subset/checks.py
+```
 
-Unit test xác nhận loss mask, không lộ gold vào prompt, annotation prefix, chia tập theo nhóm request,
-schema rejection không bị thực thi và scorer không đếm trùng call.
-Kiểm tra GPU và chất lượng phải lấy từ artifact notebook; unit test hoặc replay gold không phải kết quả fine-tuning.
+Các kiểm tra nhẹ cần `jsonschema`; kiểm tra tensor chỉ chạy khi có Torch/Transformers/PEFT. CPU checks không xác nhận chất lượng hay tốc độ trên GPU. Loss valid teacher-forced không thay thế đánh giá workflow.
 
-## Đóng gói offline
+## Lưu trữ bản cũ
 
-Sau khi có artifact huấn luyện:
+Các notebook thử nghiệm đã thay thế và output tải về trước đợt dọn này được chuyển ra `../paper_solution_archive/cleanup_20261105/`. Có `moved_paths.json` liệt kê đường dẫn; log và checkpoint không bị xóa. Rationale trong `outputs/codex_rationales/` và các thay đổi local chưa commit được giữ nguyên. Mã cũ đã commit cũng có thể tra lại trong lịch sử Git.
 
-~~~bash
-python bundle_models.py --run-dir outputs/full --output models
-docker build -t lifemate-paper .
-docker run --rm --gpus all --network none -v /path/to/data:/data:ro \
-  -v /path/to/result:/app/result lifemate-paper
-~~~
-
-Docker mặc định đọc /data/private_test/private_test.jsonl. Nếu BTC mount trực tiếp thư mục split,
-cần bố trí lại đường dẫn root/split tương ứng trước khi chạy. Dockerfile là cấu hình tham khảo,
-chưa build hoặc benchmark trên A30 trong phiên này.
-
-## Notebook Planner / Caller mới
-
-[Hướng dẫn](notebooks/planner_caller_compiled/README.md) · [Kaggle](https://www.kaggle.com/code/anartt/lifemate-planner-caller-compiled)
-
-Rationale tiếng Anh ngắn gọn, chỉ dẫn nguồn tham số thay vì chép toàn bộ arguments; prompt tiếng Anh và schema TypeScript. Mặc định chỉ train Planner + Caller trên 2 T4, split 1300/245, bật Unsloth compile và vào full train trực tiếp, không chạy smoke đầu phiên. Notebook được lưu để tự chạy; chưa benchmark compile trên GPU.
-
-## Tài liệu
-
-- [Paper và điều chỉnh cho cuộc thi](docs/method.md)
-- [Kết quả kiểm tra local và trạng thái Kaggle](docs/validation.md)
-- [Qwen3-4B-Instruct-2507 model card](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)
-- [PEFT 0.18 API](https://huggingface.co/docs/peft/v0.18.0/en/package_reference/peft_model)
-- [Whisper small CTranslate2](https://huggingface.co/Systran/faster-whisper-small)
+Xem thêm [đối chiếu paper](docs/method.md) và [hướng dẫn nhãn hiện tại](notebooks/planner_caller_compiled/README.md). Tài liệu audit cũ mô tả các phiên lịch sử; bảng notebook và cấu hình ở README này mô tả luồng hiện tại.

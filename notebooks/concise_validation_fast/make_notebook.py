@@ -5,7 +5,7 @@ payload={str(p.relative_to(HERE/'runtime')):p.read_text() for p in sorted((HERE/
 sha=hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest();cells=[]
 def md(s):cells.append({'cell_type':'markdown','metadata':{},'source':textwrap.dedent(s).strip()+'\n'})
 def code(s):cells.append({'cell_type':'code','metadata':{},'execution_count':None,'outputs':[],'source':textwrap.dedent(s).strip()+'\n'})
-md('# Concise Planner + Caller: full validation metrics\nInference only on the fixed 245 validation episodes. Two independently trained local adapters (Planner v4, Caller v5), exact English training prompts and TypeScript tool schemas. Two independent GPU workers, batch4 per GPU (up to8 workflows total). CUDA Graph enabled; prefix caching disabled on T4/SM75 because its Triton prefix-prefill kernel fails. Prefix caching remains enabled on SM80+. At most one revision per node per decision. First CUDA graph capture can add startup time. No silent eager fallback. Supplied ASR for current/history audio; no transcript oracle. No Summarizer generation; its route ends the workflow. Report local approximate contest score, tool-call F1, state match and per-sample traces. No public-test run or submission. Checkpoint file hashes and prompt/model/data provenance are verified before loading. Save batch outputs for continuation; no per-sample timeout.')
+md('# Concise Planner + Caller: full validation metrics\nInference only on the fixed 245 validation episodes. Unguided generation for both nodes, followed by JSON/schema validation. Maximum7 decisions and7 executed tool calls per episode. Two independently trained local adapters (Planner v4, Caller v5), exact English training prompts and TypeScript tool schemas. Two independent GPU workers, batch4 per GPU (up to8 workflows total). CUDA Graph enabled; prefix caching disabled on T4/SM75 because its Triton prefix-prefill kernel fails. Prefix caching remains enabled on SM80+. At most one revision per node per decision. First CUDA graph capture can add startup time. No silent eager fallback. Supplied ASR for current/history audio; no transcript oracle. No Summarizer generation; its route ends the workflow. Report local approximate contest score, tool-call F1, state match and per-sample traces. No public-test run or submission. Checkpoint file hashes and prompt/model/data provenance are verified before loading. Save batch outputs for continuation; no per-sample timeout.')
 code('''
 from pathlib import Path
 import os,sys,json,hashlib,subprocess,zipfile,time,shutil
@@ -13,7 +13,7 @@ MODEL='Qwen/Qwen3-4B-Instruct-2507'
 REVISION='cdbee75f17c01a7cc42f958dc650907174af0554'
 MODE='multi_local'  # trained local Planner and Caller, terminal route without Summarizer
 assert MODE=='multi_local'
-RUN_NAME='concise_two_gpu_graph_retry1_t4compat_v2_valid245'
+RUN_NAME='concise_two_gpu_unguided_limits7_valid245'
 SESSION_STARTED=time.monotonic()
 SESSION_HOURS=10  # Stop before new batches after this budget; no per-sample timeout.
 RESUME_DIR=None  # Optional mounted prior run directory containing config.json and split subfolders.
@@ -62,7 +62,7 @@ for role in ('planner','caller'):
     assert meta['prompt_sha256']==digest(PROMPTS) and meta['model']==MODEL and meta['revision']==REVISION
 config={'mode':MODE,'model':MODEL,'revision':REVISION,'source_sha':SOURCE_SHA,
         'checkpoint_manifest_sha':hashlib.sha256((ADAPTERS/'checkpoint_manifest.json').read_bytes()).hexdigest(),
-        'prompt_sha':digest(PROMPTS),'policy':POLICY_VERSION,'batch_size_per_gpu':4,'gpu_workers':2,'cuda_graphs':True,'prefix_caching_policy':'sm80_plus','revisions_per_role':1,'asr':True}
+        'prompt_sha':digest(PROMPTS),'policy':POLICY_VERSION,'batch_size_per_gpu':4,'gpu_workers':2,'guided_decoding':False,'max_decisions':7,'max_tool_calls':7,'cuda_graphs':True,'prefix_caching_policy':'sm80_plus','revisions_per_role':1,'asr':True}
 if (WORK/'config.json').exists():assert json.loads((WORK/'config.json').read_text())==config,'Different run settings; use a fresh RUN_NAME'
 else:(WORK/'config.json').write_text(json.dumps(config,indent=2))
 print('Checkpoint roles:',manifest['roles'],'Mode:',MODE)
