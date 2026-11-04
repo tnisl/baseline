@@ -1,0 +1,11 @@
+{
+  "cpu_checks": "pass",
+  "diagnostic_episodes": 4,
+  "node_probes": {
+    "planner": 15,
+    "caller": 11
+  },
+  "node_generations_two_modes": 52,
+  "reference_calls_schema_valid": true,
+  "gpu_run": false
+}

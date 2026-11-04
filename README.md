@@ -1,12 +1,13 @@
 # LifeMate — Planner / Caller với Qwen3-4B
 
-Repo hiện giữ ba notebook đang dùng. Prompt tiếng Anh, tool schema TypeScript; Planner chọn bước tiếp theo, Caller điền arguments, tool result quay lại Planner. Route `summarizer` kết thúc workflow mà không cần sinh bằng một model Summarizer.
+Repo giữ các notebook train, validation và chẩn đoán đang dùng. Prompt tiếng Anh, tool schema TypeScript; Planner chọn bước tiếp theo, Caller điền arguments, tool result quay lại Planner. Route `summarizer` kết thúc workflow mà không cần sinh bằng một model Summarizer.
 
 | Mục đích | Mã nguồn | Kaggle |
 |---|---|---|
 | Finetune Planner + Caller | [planner_caller_compiled](notebooks/planner_caller_compiled/README.md) | [Training](https://www.kaggle.com/code/anartt/lifemate-planner-caller-compiled) |
 | Validation đầy đủ, 245 mẫu | [concise_validation_fast](notebooks/concise_validation_fast/README.md) | [Validation](https://www.kaggle.com/code/anartt/lifemate-concise-validation-fast) |
 | Kiểm tra 4 mẫu từng lỗi | [unguided_failure_subset](notebooks/unguided_failure_subset/README.md) | [Diagnostic](https://www.kaggle.com/code/anartt/lifemate-unguided-failure-subset) |
+| So sánh base với adapter | [base_adapter_comparison](notebooks/base_adapter_comparison/README.md) | [Comparison](https://www.kaggle.com/code/anartt/lifemate-base-adapter-comparison) |
 
 Notebook được tạo bằng `make_notebook.py` trong từng thư mục và nhúng runtime đi kèm. Core được chốt ở commit cũ để tái lập; runtime nhúng là phần ghi đè có hiệu lực. Sửa `runtime/` rồi build lại notebook, không chỉ sửa payload trong `.ipynb`.
 
@@ -28,6 +29,7 @@ notebooks/
   planner_caller_compiled/    # Train + checkpoint/resume
   concise_validation_fast/   # Full valid, hai worker GPU
   unguided_failure_subset/   # Chẩn đoán bốn mẫu
+  base_adapter_comparison/   # Cùng đầu vào, base vs adapter
 umilife/                     # Core, backend Transformers, train/evaluate helpers
 tests/                      # CPU contracts và kiểm tra tích hợp tùy dependency
 docs/                       # Đối chiếu paper, audit và provenance rationale
