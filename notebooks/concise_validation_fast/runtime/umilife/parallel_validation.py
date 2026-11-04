@@ -29,7 +29,7 @@ def merge(root,work,ids):
             'asr':json.loads((work/'asr_report.json').read_text()),'workers':reports,
             'termination_reasons':dict(Counter(t['reason'] for t in traces)),
             'runtime':{'independent_gpus':2,'batch_per_gpu':4,'total_concurrent_workflows':8,
-                       'cuda_graphs':True,'prefix_caching':True,'max_revisions_per_role_per_decision':1}}
+                       'cuda_graphs':all(r['runtime']['cuda_graphs'] for r in reports),'prefix_caching_per_worker':[r['runtime']['prefix_caching'] for r in reports],'max_revisions_per_role_per_decision':1}}
     write_json(work/'report.json',report);return report
 
 def main():
@@ -55,14 +55,15 @@ def main():
             if a.deadline_monotonic:command+=['--deadline-monotonic',str(a.deadline_monotonic)]
             log=(part/'worker.log').open('a',buffering=1);logs.append(log)
             processes.append(subprocess.Popen(command,env=env,stdout=log,stderr=subprocess.STDOUT))
-            print(json.dumps({'event':'worker_start','gpu':rank,'samples':len(ids[rank::2]),'cuda_graphs':True,'prefix_caching':True}),flush=True)
+            print(json.dumps({'event':'worker_start','gpu':rank,'samples':len(ids[rank::2]),'cuda_graphs':True,'prefix_caching_policy':'sm80_plus'}),flush=True)
         while any(p.poll() is None for p in processes):
             for rank,process in enumerate(processes):
                 if process.poll() not in (None,0,75):
                     print((work/f'gpu{rank}'/'worker.log').read_text()[-10000:],flush=True)
                     raise RuntimeError(f'GPU worker {rank} failed: {process.returncode}; inspect worker.log')
                 if rank not in ready and (work/f'gpu{rank}'/'preflight.json').exists():
-                    ready.add(rank);print(json.dumps({'event':'worker_ready','gpu':rank}),flush=True)
+                    ready.add(rank);settings=json.loads((work/f'gpu{rank}'/'preflight.json').read_text())
+                    print(json.dumps({'event':'worker_ready','gpu':rank,'runtime':settings['runtime']}),flush=True)
                 progress=work/f'gpu{rank}'/'progress.json'
                 if progress.exists():
                     x=json.loads(progress.read_text());done=x['completed']
@@ -71,7 +72,9 @@ def main():
             time.sleep(2)
         if any(p.returncode==75 for p in processes):raise SystemExit(75)
         for rank,p in enumerate(processes):
-            assert p.returncode==0,f'GPU worker {rank} failed; inspect worker.log'
+            if p.returncode!=0:
+                print((work/f'gpu{rank}'/'worker.log').read_text()[-14000:],flush=True)
+                raise RuntimeError(f'GPU worker {rank} failed: {p.returncode}; inspect worker.log')
         report=merge(root,work,ids)
         print(json.dumps({k:v for k,v in report['metrics'].items() if k!='per_sample'},indent=2),flush=True)
     finally:

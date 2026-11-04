@@ -170,6 +170,9 @@ class Backend:
         import torch
         assert torch.cuda.is_available()
         assert torch.cuda.get_device_capability(0)>=(7,0)
+        from umilife.runtime_options import engine_options
+        self.runtime_options=engine_options(torch.cuda.get_device_capability(0))
+        print(dumps({'event':'runtime_options','gpu':os.environ.get('LIFEMATE_WORKER_GPU','0'),**self.runtime_options}),flush=True)
         self.max_context=max_context
         self.requests={}
         adapter_parameters=0
@@ -199,7 +202,7 @@ class Backend:
         self.llm=LLM(model=model,revision=revision,tokenizer=str(Path(adapters)/"planner"),
             dtype="float16",tensor_parallel_size=1,enable_lora=True,max_loras=2,max_cpu_loras=2,
             max_lora_rank=16,max_model_len=max_context,max_num_seqs=4,max_num_batched_tokens=max_context,
-            gpu_memory_utilization=.85,enforce_eager=False,enable_prefix_caching=True,
+            gpu_memory_utilization=.85,enforce_eager=not self.runtime_options["cuda_graphs"],enable_prefix_caching=self.runtime_options["prefix_caching"],
             enable_chunked_prefill=False,seed=42,trust_remote_code=False,
             generation_config="vllm",disable_log_stats=True)
         self.tokenizer=self.llm.get_tokenizer()
@@ -244,12 +247,19 @@ class Backend:
         print(dumps({'event':'generation','gpu':os.environ.get('LIFEMATE_WORKER_GPU','0'),'roles':dict(Counter(r['role'] for r in requests)),'batch':len(requests),'generated_tokens':sum(len(r.outputs[0].token_ids) for r in results),'seconds':time.monotonic()-generation_started}),flush=True)
         return responses
     def preflight(self):
-        requests=[]
-        for role in ('planner','caller'):
-            requests.append({'role':role,'probe':True,'schema':{'type':'object','properties':{'probe':{'type':'string','enum':[role]}},'required':['probe'],'additionalProperties':False},'messages':[{'role':'user','content':'Return the required probe object.'}]})
-        responses=self.generate(requests)
-        assert all(r['schema_valid'] for r in responses),responses
-        return {'roles':['planner','caller'],'batch_limit':4,'json_probes':'pass'}
+        # Long synthetic shared prefixes exercise the cached-prefill path, not just decode.
+        # No validation text or labels are used in these compatibility probes.
+        for suffix in ('first suffix','second suffix'):
+            requests=[]
+            for role in ('planner','caller'):
+                for index in range(2):
+                    requests.append({'role':role,'probe':True,
+                        'schema':{'type':'object','properties':{'probe':{'type':'string','enum':[role]}},'required':['probe'],'additionalProperties':False},
+                        'messages':[{'role':'user','content':('Synthetic shared prefix for runtime compatibility. '*128)+suffix+str(index)}]})
+            responses=self.generate(requests)
+            assert all(r['schema_valid'] for r in responses),responses
+        return {'roles':['planner','caller'],'batch_limit':4,'json_probes':'pass',
+                'long_shared_prefix_two_passes':'pass','runtime':self.runtime_options}
 
 def main():
     p=argparse.ArgumentParser()
@@ -317,7 +327,7 @@ def main():
             'role_adapter_map':{'planner':'planner','caller':'caller','summarizer':'terminal_without_generation'},
             'missing_local_adapters':[],'policy':POLICY_AUDIT,
             'termination_reasons':dict(Counter(t['reason'] for t in traces)),
-            'runtime':{'cuda_graphs':True,'prefix_caching':True,'worker_gpu':os.environ.get('LIFEMATE_WORKER_GPU','0'),'batch_per_gpu':4,'max_revisions_per_role_per_decision':1}}
+            'runtime':{**backend.runtime_options,'worker_gpu':os.environ.get('LIFEMATE_WORKER_GPU','0'),'batch_per_gpu':4,'max_revisions_per_role_per_decision':1}}
     if a.split=='validation':
         # Scorer-only gold replay after ALL model predictions have been generated.
         from umilife.evaluate import evaluate

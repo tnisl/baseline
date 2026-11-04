@@ -81,7 +81,7 @@ with tempfile.TemporaryDirectory() as temp:
   part=w/f'gpu{rank}';part.mkdir()
   (part/'submission.jsonl').write_text(json.dumps(r[rank][0])+'\n')
   (part/'traces.jsonl').write_text(json.dumps(r[rank][1])+'\n')
-  (part/'report.json').write_text('{}')
+  (part/'report.json').write_text(json.dumps({'runtime':{'cuda_graphs':True,'prefix_caching':False}}))
  parallel.load_catalog=lambda *a:specs
  parallel.import_toolenv=lambda *a:lambda *args,**kwargs:Env()
  report=parallel.merge(w,w,[rows[1]['id'],rows[0]['id']])
@@ -91,3 +91,24 @@ with tempfile.TemporaryDirectory() as temp:
  try:parallel.merge(w,w,[rows[1]['id'],rows[0]['id']]);raise RuntimeError('Duplicate IDs were accepted')
  except AssertionError:pass
 print('PASS: one-revision budgets, recovered errors, shared Planner review budget, two-worker merge and duplicate rejection')
+
+# Pinned-runtime compatibility must preserve graphs while avoiding the SM75 failure path.
+from umilife.runtime_options import engine_options
+assert engine_options((7,5))['cuda_graphs'] and not engine_options((7,5))['prefix_caching']
+assert engine_options((8,0))['prefix_caching']
+# Both workers can fail between polls; the parent must still show the underlying log.
+import contextlib,io,types
+from unittest.mock import patch
+with tempfile.TemporaryDirectory() as temp:
+ w=Path(temp);(w/'ids.txt').write_text('\n'.join(f'id{i}' for i in range(245)))
+ (w/'asr_transcripts.json').write_text('{}');(w/'asr_report.json').write_text('{}')
+ def failed_process(command,env,stdout,stderr):
+  stdout.write('ROOT_KERNEL_FAILURE\n');stdout.flush()
+  return types.SimpleNamespace(returncode=1,poll=lambda:1)
+ argv=['parallel','--data-root',str(w),'--work',str(w),'--model','fixture','--revision','fixture','--adapters',str(w),'--ids-file',str(w/'ids.txt')]
+ output=io.StringIO()
+ with patch.object(sys,'argv',argv),patch.dict(sys.modules,{'torch':types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda:2))}),patch.object(parallel.subprocess,'Popen',failed_process),contextlib.redirect_stdout(output):
+  try:parallel.main();raise AssertionError('Worker failure was ignored')
+  except RuntimeError:pass
+ assert 'ROOT_KERNEL_FAILURE' in output.getvalue()
+print('PASS: T4 prefix-cache compatibility and simultaneous-worker failure diagnostics')
