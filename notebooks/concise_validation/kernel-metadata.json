@@ -1,0 +1,18 @@
+{
+  "id": "anartt/lifemate-concise-validation-245",
+  "title": "LifeMate Concise Validation 245",
+  "code_file": "kaggle_concise_validation.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset",
+    "anartt/lifemate-concise-planner-caller-adapters",
+    "anartt/lifemate-concise-validation-asr"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
