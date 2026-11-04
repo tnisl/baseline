@@ -69,3 +69,18 @@ with tempfile.TemporaryDirectory() as temp:
     comparison=summarize(w,H/'runtime/baseline_subset.json')
     assert len(comparison['samples'])==4 and (w/'comparison.md').exists()
 print('PASS: unchanged prompts/contracts, four held-out IDs, embedded runtime, unguided both nodes, JSON/schema rejection, one repair, no invalid tool execution, historical comparison')
+
+# A model that never finishes must stop after seven decisions/calls.
+class Endless:
+    def validate(self,r):pass
+    def generate(self,requests):
+        return [{'raw':json.dumps({'thought':'Perform the requested operation.','next':'caller','tool':'demo.write'} if r['role']=='planner' else {'name':'demo.write','arguments':{'value':'requested'}}),'schema_valid':True} for r in requests]
+env=Env()
+result=run_batch([rollout({'id':'x','context':{},'history':[]},'write',specs,env,'multi')],Endless())[0]
+assert len(env.calls)==7 and result[1]['reason']=='decision_limit'
+assert max(r['decision'] for r in result[1]['trace'])==6
+# Independently exercise call cap, with decision budget temporarily larger.
+env=Env()
+result=run_batch([rollout({'id':'x','context':{},'history':[]},'write',specs,env,'multi',max_decisions=9)],Endless())[0]
+assert len(env.calls)==7 and result[1]['reason']=='call_limit'
+print('PASS: seven-decision default and independent seven-executed-call cap')

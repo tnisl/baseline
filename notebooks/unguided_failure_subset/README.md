@@ -6,13 +6,13 @@ Open the notebook, select **T4 Ã—2** and enable Internet, then **Save Version â†
 
 Selected IDs from the unchanged `split.txt`: `train_0017`, `train_0066`, `train_0088`, `train_0001`. These were failures in fast validation v5 and are deliberately selected diagnostics, not a representative validation score.
 
-Runs supplied Zipformer ASR on current and history audio, then Qwen3-4B-Instruct-2507 + the existing Planner/Caller local adapters. No finetuning. English prompts, TypeScript schemas, greedy decoding, token limits (Planner320, Caller512), context8192, graph/cache compatibility and rollout limits (16 decisions /10 tool calls) stay as in the prior fast validation runtime. Summarizer route ends without model generation.
+Runs supplied Zipformer ASR on current and history audio, then Qwen3-4B-Instruct-2507 + the existing Planner/Caller local adapters. No finetuning. English prompts, TypeScript schemas, greedy decoding, token limits (Planner320, Caller512), context8192, graph/cache compatibility stay as in the prior fast validation runtime. Rollouts are now limited to **7 decisions /7 executed tool calls**; prevented duplicate reads still consume a decision. Summarizer route ends without model generation.
 
 **Both nodes use `guided_decoding=None`.** LMFE may remain installed as a pinned vLLM dependency, but is not attached to sampling. JSON parsing, schema checks, tool argument validation and one repair per node per decision remain active. The old synthetic preflight relied on grammar-constrained output and is explicitly skipped. Invalid output after the allowed repair ends with `format_error` without executing that invalid call.
 
 Labels and prior predictions are never included in model messages. Gold labels are read by the scorer after all four predictions; `baseline_subset.json` is consumed only by final reporting. Prompt and checkpoint provenance are checked before loading. The frozen core commit plus embedded runtime is used rather than whatever branch happens to be latest.
 
-Output: `/kaggle/working/unguided_failure_subset/unguided_failure_subset_v1/validation/`.
+Output: `/kaggle/working/unguided_failure_subset/unguided_failure_subset_v2_limits7/validation/`.
 
 - `comparison.md` / `comparison.json`: per-ID old/new score, tool F1, state match, termination, repetition, thought length and actual tool calls.
 - `report.json`: aggregate approximate contest metrics and JSON/schema violation counts.

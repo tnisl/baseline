@@ -17,7 +17,7 @@ SYSTEMS=PROMPTS
 from umilife.data import normalized_row
 from umilife.grammar import role_schema
 
-def rollout(row,text,specs,env,mode,max_calls=10,max_decisions=16):
+def rollout(row,text,specs,env,mode,max_calls=7,max_decisions=7):
     assert mode=='multi','This evaluator uses two local adapters only'
     started=time.monotonic();trajectory=[];trace=[];answer=None;reason='decision_limit'
     feedback=None;reviews=0;read_skips=0;repairs=0
@@ -88,7 +88,7 @@ def rollout(row,text,specs,env,mode,max_calls=10,max_decisions=16):
         'id':row['id'],'reason':reason,'elapsed_s':time.monotonic()-started,'over_deadline':False,
         'time_limit_enforced':False,'answer':answer,'trace':trace,'trajectory':trajectory,'transcript':text,
         'completion_reviews':reviews,'repeat_reads_prevented':read_skips,'repairs':repairs,
-        'revision_counts':revisions,'max_revisions_per_role_per_decision':1,'prompt_policy':POLICY_VERSION}
+        'revision_counts':revisions,'max_revisions_per_role_per_decision':1,'max_decisions':max_decisions,'max_tool_calls':max_calls,'prompt_policy':POLICY_VERSION}
 
 def run_batch(generators,backend):
     active={}

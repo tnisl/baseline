@@ -13,7 +13,7 @@ MODEL='Qwen/Qwen3-4B-Instruct-2507'
 REVISION='cdbee75f17c01a7cc42f958dc650907174af0554'
 MODE='multi_local'  # trained local Planner and Caller, terminal route without Summarizer
 assert MODE=='multi_local'
-RUN_NAME='unguided_failure_subset_v1'
+RUN_NAME='unguided_failure_subset_v2_limits7'
 SESSION_STARTED=time.monotonic()
 SESSION_HOURS=10  # Stop before new batches after this budget; no per-sample timeout.
 RESUME_DIR=None  # Optional mounted prior run directory containing config.json and split subfolders.
@@ -62,7 +62,7 @@ for role in ('planner','caller'):
     assert meta['prompt_sha256']==digest(PROMPTS) and meta['model']==MODEL and meta['revision']==REVISION
 config={'mode':MODE,'model':MODEL,'revision':REVISION,'source_sha':SOURCE_SHA,
         'checkpoint_manifest_sha':hashlib.sha256((ADAPTERS/'checkpoint_manifest.json').read_bytes()).hexdigest(),
-        'prompt_sha':digest(PROMPTS),'policy':POLICY_VERSION,'batch_size_per_gpu':4,'gpu_workers':1,'guided_decoding':False,'ids':(SOURCE/'diagnostic_ids.txt').read_text().splitlines(),'cuda_graphs':True,'prefix_caching_policy':'sm80_plus','revisions_per_role':1,'asr':True}
+        'prompt_sha':digest(PROMPTS),'policy':POLICY_VERSION,'batch_size_per_gpu':4,'gpu_workers':1,'guided_decoding':False,'max_decisions':7,'max_tool_calls':7,'ids':(SOURCE/'diagnostic_ids.txt').read_text().splitlines(),'cuda_graphs':True,'prefix_caching_policy':'sm80_plus','revisions_per_role':1,'asr':True}
 if (WORK/'config.json').exists():assert json.loads((WORK/'config.json').read_text())==config,'Different run settings; use a fresh RUN_NAME'
 else:(WORK/'config.json').write_text(json.dumps(config,indent=2))
 print('Checkpoint roles:',manifest['roles'],'Mode:',MODE)
