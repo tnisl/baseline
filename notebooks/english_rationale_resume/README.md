@@ -1,12 +1,25 @@
 # English evidence rationales, 1300/245 split, resumable training
 
-Open `kaggle_english_rationale_resume.ipynb`, select **T4 x2**, enable Internet and Run All. Default `PROFILE='full'` runs an integration smoke first, then full Global -> independent Planner/Caller/Summarizer finetuning. Saving the notebook does not start a GPU job. ASR and test inference are outside this notebook.
+Open `kaggle_english_rationale_resume.ipynb`, select **T4 x2**, enable Internet and Run All. Default `PROFILE='full'` runs an integration smoke first, then full training for the selected stages. Saving the notebook does not start a GPU job. ASR and test inference are outside this notebook.
+
+## Choose training stages
+
+| Configuration | Stages | Initialization |
+| --- | --- | --- |
+| `TRAIN_MODE='local'`, `LOCAL_INIT='base'` (default) | Planner, Caller, Summarizer | Each independently from original Qwen; no Global is trained or required |
+| `TRAIN_MODE='global'` | Global only | Original Qwen |
+| `TRAIN_MODE='global_to_local'` | Global, then selected local stages | Each local independently from the new Global |
+| `TRAIN_MODE='local'`, `LOCAL_INIT='global'` | Selected local stages only | Set `GLOBAL_ADAPTER` to a completed matching Global adapter directory |
+
+`LOCAL_STAGES=('planner','caller','summarizer')` can select a subset, for example `('caller',)`. This does not alter the data split. `GLOBAL_ADAPTER` must be None unless using local mode with global initialization. Smoke/full checkpoints are separate in every mode. With an external Global, both smoke and full local training use that supplied parent, whose lineage must match the new 1300/245 labels and prompt; a smoke Global is rejected for full local training.
+
+Each mode writes under `.../<RUN_NAME>/<MODE_TAG>/` and has a different config/resume signature. Local-from-base is a one-stage specialization variant, not GLPFT. Old notebook version-2 run directories have a different source signature: resume them with their original notebook version. A completed matching Global from such a run may still be reused through `GLOBAL_ADAPTER`.
 
 ## Data and rationale
 
 The deterministic episode split has **1300 train and 245 validation**. It retains the original 100 validation IDs and adds 145 selected proportionally by first-tool app, capped action count, and conditional-request indicator. All role examples from an episode stay in its partition. Files are `runtime/train_ids.txt`, `runtime/split.txt`, and `runtime/split_manifest.json`. These are IDs, not private annotations. Semantic paraphrase groups have not been manually audited.
 
-**Start Global from the original model.** The previous Global saw some of the newly held-out 145 episodes and cannot serve as an uncontaminated parent for this experiment. The new run uses its own Global; every local branch loads that Global independently. Old run directories/checkpoints are rejected by source/data/config signatures.
+**Start Global from the original model when training it.** The old 1445/100-split Global saw some of the newly held-out 145 episodes and cannot serve as an uncontaminated parent for this experiment. Local-from-base avoids that parent; other local modes require a Global trained on these new labels/split. In all cases local branches initialize independently, never from another local role. Incompatible run directories/checkpoints are rejected by source/data/config signatures.
 
 The annotation code is `runtime/umilife/english_labels.py`. English rationale targets include the selected operation's concrete values, ID provenance from prior observations/history, observed numerical thresholds where the Vietnamese request has a numeric literal, and computed offsets from observed calendar times. It does not access the current/future tool result. Original names and text fields remain quoted in their original language. Missing-information labels name the missing fields. Cancellation/acknowledgement zero-call examples use a terminal summarizer target; other zero-call examples retain give_up. This classification is a heuristic that needs review for ambiguous requests.
 
@@ -30,9 +43,9 @@ Each immutable `checkpoints/<role>/step-XXXXXXXX/` contains the adapter, AdamW o
 
 To resume across Kaggle sessions:
 
-1. Preserve/download the **whole run directory** `/kaggle/working/english_evidence_resume/english_evidence_1300_v1/`. Kaggle working storage is not independently durable and the notebook cannot guarantee retention if a session is discarded without outputs.
+1. Preserve/download the **whole mode run directory**, by default `/kaggle/working/english_evidence_resume/english_evidence_1300_v2/local_base/`. Kaggle working storage is not independently durable and the notebook cannot guarantee retention if a session is discarded without outputs.
 2. Upload/attach that directory as a private dataset or prior notebook output.
-3. Set `RESUME_DIR` to its mounted path containing `run_config.json`, `prepared/`, `smoke/`, and `full/`. Keep RUN_NAME, source, split, GPU count and training settings unchanged.
+3. Set `RESUME_DIR` to its mounted path containing `run_config.json`, `prepared/`, `smoke/`, and `full/`. Keep TRAIN_MODE, LOCAL_INIT, LOCAL_STAGES, RUN_NAME, source, split, GPU count and training settings unchanged.
 4. Run All. Completed stages are skipped; an interrupted stage resumes its optimizer/batch cursor. Full Global is never initialized from the smoke Global.
 
 Resuming with different batch size, data, loss chunk or schedule is rejected. Checkpoints are trusted local artifacts (`torch.load(..., weights_only=False)` for optimizer/RNG state); do not attach untrusted checkpoint files.

@@ -14,7 +14,7 @@
     "requires_new_global": true,
     "note": "ID-disjoint split. Semantic paraphrase groups have not been manually audited; old 100 are a development set."
   },
-  "notebook_sha256": "ee97ea6d1391aa28bc0f4a5380e4fce1965b71ec938376f038234b2efe0d6f24",
+  "notebook_sha256": "b536b1f1b5b06c94f8909af2af460388d2198fe251f366abb79da917dc9a2c17",
   "full_data_preparation": {
     "passed": true,
     "counts": {
@@ -39,5 +39,7 @@
     },
     "targets_schema_valid": true,
     "no_overlength": true
-  }
+  },
+  "mode_tests": "passed: notebook stage runner for all 3 modes, independent base initialization, completed-stage skips, incompatible Global rejection",
+  "gpu_mode_test_run": false
 }

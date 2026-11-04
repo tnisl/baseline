@@ -10,9 +10,9 @@ def cell(kind,s):
 cell('markdown','''
 # English evidence rationales — 1300 train / 245 validation — resumable GLPFT
 Select T4 x2, Internet on, Run All. No job is launched by saving this notebook.
-Global starts from original Qwen3-4B-Instruct-2507; old adapters are incompatible with this new split.
+TRAIN_MODE='local' (default) trains independent local branches directly from original Qwen; 'global' trains only Global; 'global_to_local' trains Global then locals. For local mode only, LOCAL_INIT='global' and GLOBAL_ADAPTER can reuse a completed matching Global. Old split adapters are rejected.
 English instructions and evidence-compiled English rationales, TypeScript tool documentation, original Vietnamese requests and names preserved. These are deterministic grounded annotations, not independently reviewed per-episode teacher rationales. Audit the exported data before interpreting quality results.
-Default PROFILE='full' first runs the two-update smoke on each role, deliberately pauses after update 1 and resumes optimizer state. Any smoke failure stops full training.
+Default PROFILE='full' first runs the two-update smoke on each selected role, deliberately pauses after update 1 and resumes optimizer state. Any smoke failure stops full training.
 Full: Global 1 epoch; Planner/Caller 1; Summarizer 2. Train/validation microbatch 4 per GPU, effective train batch 8. Unsloth QLoRA rank16, cosine/warmup, patience3; loss chunks256, cached tokenization.
 Checkpoint every25 updates and after evaluation: adapter, optimizer, LR scheduler, scaler, per-rank RNG and batch cursor. At 10 hours request a cooperative save/pause. Hard kill can lose work since the last complete checkpoint. Kaggle working storage is not permanent: preserve outputs and attach them as a private input for a later session. RESUME_DIR must point to the previous whole run directory including prepared/, smoke/, full/ and checkpoints/best.
 This notebook only prepares and finetunes; no ASR, workflow/public-test inference or automatic submission. Validation loss remains teacher-forced and is not a replacement for Planner free-generation evaluation. No validation-specific prompt exceptions are used.
@@ -21,9 +21,17 @@ cell('code','''
 from pathlib import Path
 import os,sys,json,hashlib,subprocess,zipfile,shutil,time
 PROFILE='full' # 'smoke' to only check training/resume integration
-RUN_NAME='english_evidence_1300_v1'
+TRAIN_MODE='local' # 'local', 'global', or 'global_to_local'
+LOCAL_INIT='base' # local mode: 'base' or 'global'
+GLOBAL_ADAPTER=None # completed Global adapter directory; only for local + LOCAL_INIT='global'
+LOCAL_STAGES=('planner','caller','summarizer') # optionally select a subset
+RUN_NAME='english_evidence_1300_v2'
+assert TRAIN_MODE in ('local','global','global_to_local') and LOCAL_INIT in ('base','global')
+if TRAIN_MODE=='local':assert (GLOBAL_ADAPTER is not None)==(LOCAL_INIT=='global')
+else:assert GLOBAL_ADAPTER is None,'GLOBAL_ADAPTER only applies to local mode'
+MODE_TAG=TRAIN_MODE+'_'+LOCAL_INIT if TRAIN_MODE=='local' else TRAIN_MODE
 RESUME_DIR=None # Mounted previous whole run directory, not just a single adapter
-WORK=Path('/kaggle/working/english_evidence_resume')/RUN_NAME
+WORK=Path('/kaggle/working/english_evidence_resume')/RUN_NAME/MODE_TAG
 WORK.mkdir(parents=True,exist_ok=True)
 if RESUME_DIR is not None:shutil.copytree(Path(RESUME_DIR),WORK,dirs_exist_ok=True)
 SOURCE=Path('/kaggle/working/english_evidence_source')
@@ -41,7 +49,7 @@ SOURCE_SHA={sha!r}
 assert hashlib.sha256(json.dumps(PAYLOAD,sort_keys=True).encode()).hexdigest()==SOURCE_SHA
 for name,content in PAYLOAD.items():
  p=SOURCE/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
-config={{'source_sha':SOURCE_SHA,'model':MODEL,'revision':REVISION,'epochs':EPOCHS,'micro_batch':4,'world_size':2}}
+config={{'source_sha':SOURCE_SHA,'model':MODEL,'revision':REVISION,'epochs':EPOCHS,'micro_batch':4,'world_size':2,'train_mode':TRAIN_MODE,'local_init':LOCAL_INIT if TRAIN_MODE=='local' else None,'local_stages':list(LOCAL_STAGES),'global_parent_sha':hashlib.sha256((Path(GLOBAL_ADAPTER)/'adapter_model.safetensors').read_bytes()).hexdigest() if GLOBAL_ADAPTER else None}}
 if (WORK/'run_config.json').exists():assert json.loads((WORK/'run_config.json').read_text())==config,'Incompatible resume directory'
 else:(WORK/'run_config.json').write_text(json.dumps(config,indent=2))
 ''')
@@ -80,20 +88,29 @@ assert m['split_sha256']==hashlib.sha256((SOURCE/'split.txt').read_bytes()).hexd
 print('Data:',m['counts']);print('Annotations:',m['rationale_provenance'])
 ''')
 cell('code','''
+from umilife.training_modes import stages_for,parent_for,verify_parent
+SELECTED_STAGES=stages_for(TRAIN_MODE,LOCAL_STAGES)
+print('Selected stages:',SELECTED_STAGES,'Local initialization:',LOCAL_INIT if TRAIN_MODE=='local' else TRAIN_MODE)
 def train_profile(profile):
  output=WORK/profile
- for stage,epochs in EPOCHS.items():
+ for stage in SELECTED_STAGES:
+  epochs=EPOCHS[stage]
+  parent=parent_for(stage,TRAIN_MODE,LOCAL_INIT,GLOBAL_ADAPTER,output)
+  init_from='global' if parent is not None else 'base'
+  if parent is not None:
+   verify_parent(parent,MODEL,REVISION,hashlib.sha256((DATA/'manifest.json').read_bytes()).hexdigest(),m['prompts_sha256'],profile=='smoke')
   done=output/'adapters'/stage/'lineage.json'
   if done.exists():
    record=json.loads(done.read_text())
    assert record['dataset_manifest_sha256']==hashlib.sha256((DATA/'manifest.json').read_bytes()).hexdigest()
-   assert record['smoke']==(profile=='smoke')
+   assert record['smoke']==(profile=='smoke') and record['initialization']==init_from
+   assert record['global_adapter_sha256']==(hashlib.sha256((parent/'adapter_model.safetensors').read_bytes()).hexdigest() if parent else None)
    print('Already complete:',profile,stage);continue
   args=['--stage',stage,'--data-dir',DATA,'--output-dir',output,'--model',MODEL,'--revision',REVISION,
-   '--epochs',1 if profile=='smoke' else epochs,'--train-batch-size',4,'--eval-batch-size',4,'--eval-steps',100]
+   '--init-from',init_from,'--epochs',1 if profile=='smoke' else epochs,'--train-batch-size',4,'--eval-batch-size',4,'--eval-steps',100]
   stage_env=ENV.copy()
   if profile=='smoke':args+=['--smoke'];stage_env.update(SAVE_STEPS='1',SMOKE_PAUSE_STEP='1')
-  if stage!='global':args+=['--global-adapter',output/'adapters/global']
+  if parent is not None:args+=['--global-adapter',parent]
   result=execute('umilife.train_2gpu',args,ddp=True,env=stage_env,check=False)
   if profile=='smoke' and result.returncode!=0 and time.time()<DEADLINE-60:
    # torchrun may map a worker's exit75 to exit1. Require an actual saved step1 checkpoint.

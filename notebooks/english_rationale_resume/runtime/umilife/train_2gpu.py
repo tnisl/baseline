@@ -20,18 +20,20 @@ def main():
     from umilife.train import Dataset,Collator,adapter_state
     from umilife.prompt_policy import PROMPTS,POLICY_AUDIT
     from umilife.ddp_engine import fit,agreement
+    from umilife.training_modes import validate_initialization,verify_parent
     from umilife.completion_loss import completion_loss
     p=argparse.ArgumentParser()
     for k in ('stage','data-dir','output-dir','model','revision'):p.add_argument('--'+k,required=True)
     p.add_argument('--train-batch-size',type=int,default=4);p.add_argument('--eval-batch-size',type=int,default=4)
     p.add_argument('--smoke',action='store_true');p.add_argument('--eval-steps',type=int,default=100)
+    p.add_argument('--init-from',choices=('base','global'),required=True)
     p.add_argument('--global-adapter');p.add_argument('--epochs',type=int,required=True)
     a=p.parse_args()
     assert a.train_batch_size>0 and a.eval_batch_size>0
     assert int(os.environ['WORLD_SIZE'])==2 and torch.cuda.device_count()==2
     assert a.stage in ('global','planner','caller','summarizer')
     assert a.epochs==1 if a.stage=='global' else a.epochs>0
-    assert bool(a.global_adapter)==(a.stage!='global')
+    validate_initialization(a.stage,a.init_from,a.global_adapter)
     dist.init_process_group('nccl',timeout=timedelta(minutes=20),device_id=torch.device('cuda',local))
     seed_all(42)
     data=Path(a.data_dir);out=Path(a.output_dir);target=out/'adapters'/a.stage
@@ -55,9 +57,8 @@ def main():
         result=set_peft_model_state_dict(model,load_peft_weights(str(path),device='cpu'))
         assert not result.unexpected_keys,result.unexpected_keys
     if a.global_adapter:
-        parent=Path(a.global_adapter);lineage=json.loads((parent/'lineage.json').read_text())
-        assert lineage['stage']=='global' and lineage['model']==a.model and lineage['revision']==a.revision
-        assert lineage['dataset_manifest_sha256']==digest(data/'manifest.json')
+        parent=Path(a.global_adapter)
+        lineage=verify_parent(parent,a.model,a.revision,digest(data/'manifest.json'),prompt_sha,a.smoke)
         load_adapter(model,parent)
     initial=adapter_state(model)
     if parent:assert initial['sha256']==lineage['final_adapter']['sha256'],'Global initialization mismatch'
@@ -81,7 +82,7 @@ def main():
         train.items=sorted(train.items,key=lambda x:len(x['input_ids']),reverse=True)[:16]
         valid.items=sorted(valid.items,key=lambda x:len(x['input_ids']),reverse=True)[:8]
         assert len(train.items)==16 and len(valid.items)==8
-    os.environ['TRAIN_RESUME_SIGNATURE']=hashlib.sha256(json.dumps({'manifest':digest(data/'manifest.json'),'stage':a.stage,'epochs':a.epochs,'smoke':a.smoke,'batch':a.train_batch_size,'eval_batch':a.eval_batch_size,'eval_steps':a.eval_steps,'loss_chunk':os.environ.get('LIFEMATE_LOSS_CHUNK','256'),'model':a.model,'revision':a.revision,'parent':digest(parent/'adapter_model.safetensors') if parent else None},sort_keys=True).encode()).hexdigest()
+    os.environ['TRAIN_RESUME_SIGNATURE']=hashlib.sha256(json.dumps({'manifest':digest(data/'manifest.json'),'stage':a.stage,'epochs':a.epochs,'smoke':a.smoke,'batch':a.train_batch_size,'eval_batch':a.eval_batch_size,'eval_steps':a.eval_steps,'loss_chunk':os.environ.get('LIFEMATE_LOSS_CHUNK','256'),'model':a.model,'revision':a.revision,'init_from':a.init_from,'parent':digest(parent/'adapter_model.safetensors') if parent else None},sort_keys=True).encode()).hexdigest()
     def save_adapter(model,path):model.save_pretrained(path,safe_serialization=True)
     result=fit(model,train,valid,Collator(tokenizer.pad_token_id),torch.device('cuda',local),
         out/'checkpoints'/a.stage,a.epochs,5e-5 if a.stage=='global' else 1e-5,
@@ -94,7 +95,7 @@ def main():
         save_adapter(model,target);tokenizer.save_pretrained(target)
         history=result.pop('history');write_json(target/'training_history.json',history)
         record={**result,'stage':a.stage,'model':a.model,'revision':a.revision,
-            'method':'Unsloth QLoRA GLPFT','loss_implementation':'assistant-only chunked CE, checkpointed projection','loss_chunk':int(os.environ.get('LIFEMATE_LOSS_CHUNK','256')),'smoke':a.smoke,'initial_adapter':initial,'final_adapter':final,
+            'initialization':a.init_from,'method':('Unsloth QLoRA global' if a.stage=='global' else 'Unsloth QLoRA local-from-'+a.init_from),'loss_implementation':'assistant-only chunked CE, checkpointed projection','loss_chunk':int(os.environ.get('LIFEMATE_LOSS_CHUNK','256')),'smoke':a.smoke,'initial_adapter':initial,'final_adapter':final,
             'parent':str(parent) if parent else None,
             'global_adapter_sha256':digest(parent/'adapter_model.safetensors') if parent else None,
             'dataset_manifest_sha256':digest(data/'manifest.json'),'prompt_sha256':prompt_sha,
