@@ -1,0 +1,205 @@
+{
+  "source": "anartt/lifemate-concise-validation-fast",
+  "version": 5,
+  "guided_decoding": true,
+  "note": "Historical selected failures; batch composition and GPU concurrency differ. Not a controlled speed benchmark.",
+  "samples": {
+    "train_0017": {
+      "metrics": {
+        "id": "train_0017",
+        "score": 0.0,
+        "hash_match": false,
+        "tool_f1": 0.0,
+        "matched": 0,
+        "pred_calls": 1,
+        "gold_calls": 2,
+        "timed_out": false
+      },
+      "reason": "complete",
+      "schema_invalid": 0,
+      "generation": {
+        "planner": {
+          "generations": 3,
+          "raw_repeat_6gram_3plus": 1,
+          "mean_thought_words": 59.0
+        },
+        "caller": {
+          "generations": 1,
+          "raw_repeat_6gram_3plus": 0,
+          "mean_thought_words": 0.0
+        }
+      },
+      "tool_calls": [
+        {
+          "name": "tv.tune",
+          "arguments": {
+            "channel": "S SPORT"
+          }
+        }
+      ]
+    },
+    "train_0066": {
+      "metrics": {
+        "id": "train_0066",
+        "score": 0.0,
+        "hash_match": false,
+        "tool_f1": 0.0,
+        "matched": 0,
+        "pred_calls": 2,
+        "gold_calls": 1,
+        "timed_out": false
+      },
+      "reason": "complete",
+      "schema_invalid": 0,
+      "generation": {
+        "planner": {
+          "generations": 4,
+          "raw_repeat_6gram_3plus": 2,
+          "mean_thought_words": 70.0
+        },
+        "caller": {
+          "generations": 2,
+          "raw_repeat_6gram_3plus": 0,
+          "mean_thought_words": 0.0
+        }
+      },
+      "tool_calls": [
+        {
+          "name": "reminders.create",
+          "arguments": {
+            "content": "Gọi lại cho khách",
+            "time": "2026-11-22T19:00:00+07:00"
+          }
+        },
+        {
+          "name": "reminders.create",
+          "arguments": {
+            "content": "Gọi lại cho khách",
+            "time": "2026-11-22T19:00:00+07:00"
+          }
+        }
+      ]
+    },
+    "train_0088": {
+      "metrics": {
+        "id": "train_0088",
+        "score": 0.0,
+        "hash_match": false,
+        "tool_f1": 0.36363636363636365,
+        "matched": 2,
+        "pred_calls": 8,
+        "gold_calls": 3,
+        "timed_out": false
+      },
+      "reason": "decision_limit",
+      "schema_invalid": 0,
+      "generation": {
+        "planner": {
+          "generations": 16,
+          "raw_repeat_6gram_3plus": 16,
+          "mean_thought_words": 157.3125
+        },
+        "caller": {
+          "generations": 16,
+          "raw_repeat_6gram_3plus": 0,
+          "mean_thought_words": 0.0
+        }
+      },
+      "tool_calls": [
+        {
+          "name": "bill_payment.list_bills",
+          "arguments": {}
+        },
+        {
+          "name": "bill_payment.pay",
+          "arguments": {
+            "bill_id": "bill_01",
+            "source": "bank"
+          }
+        },
+        {
+          "name": "bill_payment.schedule_autopay",
+          "arguments": {
+            "type": "electricity",
+            "enabled": true
+          }
+        },
+        {
+          "name": "bill_payment.list_bills",
+          "arguments": {}
+        },
+        {
+          "name": "bill_payment.pay",
+          "arguments": {
+            "bill_id": "bill_02",
+            "source": "bank"
+          }
+        },
+        {
+          "name": "bill_payment.list_bills",
+          "arguments": {}
+        },
+        {
+          "name": "bill_payment.schedule_autopay",
+          "arguments": {
+            "type": "internet",
+            "enabled": true
+          }
+        },
+        {
+          "name": "bill_payment.list_bills",
+          "arguments": {}
+        }
+      ]
+    },
+    "train_0001": {
+      "metrics": {
+        "id": "train_0001",
+        "score": 0.0,
+        "hash_match": false,
+        "tool_f1": 0.4444444444444444,
+        "matched": 2,
+        "pred_calls": 4,
+        "gold_calls": 5,
+        "timed_out": false
+      },
+      "reason": "decision_limit",
+      "schema_invalid": 0,
+      "generation": {
+        "planner": {
+          "generations": 16,
+          "raw_repeat_6gram_3plus": 11,
+          "mean_thought_words": 132.5
+        },
+        "caller": {
+          "generations": 16,
+          "raw_repeat_6gram_3plus": 0,
+          "mean_thought_words": 0.0
+        }
+      },
+      "tool_calls": [
+        {
+          "name": "weather.get_forecast",
+          "arguments": {
+            "date": "2026-11-29"
+          }
+        },
+        {
+          "name": "calendar.list_events",
+          "arguments": {}
+        },
+        {
+          "name": "calendar.create_event",
+          "arguments": {
+            "title": "chạy bộ",
+            "start": "2026-11-29T09:00:00+07:00"
+          }
+        },
+        {
+          "name": "calendar.list_events",
+          "arguments": {}
+        }
+      ]
+    }
+  }
+}

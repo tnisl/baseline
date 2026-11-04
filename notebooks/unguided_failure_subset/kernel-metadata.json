@@ -1,0 +1,18 @@
+{
+  "id": "anartt/lifemate-unguided-failure-subset",
+  "title": "LifeMate Unguided Failure Subset",
+  "code_file": "kaggle_unguided_failure_subset.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset",
+    "anartt/lifemate-concise-planner-caller-adapters",
+    "anartt/lifemate-concise-validation-asr"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
