@@ -104,6 +104,12 @@ Docker mặc định đọc /data/private_test/private_test.jsonl. Nếu BTC mou
 cần bố trí lại đường dẫn root/split tương ứng trước khi chạy. Dockerfile là cấu hình tham khảo,
 chưa build hoặc benchmark trên A30 trong phiên này.
 
+## Notebook Planner / Caller mới
+
+[Hướng dẫn](notebooks/planner_caller_compiled/README.md) · [Kaggle](https://www.kaggle.com/code/anartt/lifemate-planner-caller-compiled)
+
+Rationale tiếng Anh ngắn gọn, chỉ dẫn nguồn tham số thay vì chép toàn bộ arguments; prompt tiếng Anh và schema TypeScript. Mặc định chỉ train Planner + Caller trên 2 T4, split 1300/245, bật Unsloth compile và vào full train trực tiếp, không chạy smoke đầu phiên. Notebook được lưu để tự chạy; chưa benchmark compile trên GPU.
+
 ## Tài liệu
 
 - [Paper và điều chỉnh cho cuộc thi](docs/method.md)

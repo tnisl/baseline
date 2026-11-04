@@ -1,0 +1,28 @@
+{
+  "episode_split": {
+    "train": 1300,
+    "validation": 245
+  },
+  "counts": {
+    "planner.train": 4268,
+    "planner.validation": 818,
+    "caller.train": 2968,
+    "caller.validation": 573
+  },
+  "prior_full_tokenization_max_tokens": {
+    "planner.train": 6263,
+    "planner.validation": 5514,
+    "caller.train": 5493,
+    "caller.validation": 4872
+  },
+  "changed_terminal_samples_reencoded": 1545,
+  "thought_words": {
+    "mean": 17.22512780180889,
+    "max": 40,
+    "over_60": 0
+  },
+  "role_contract_tests": 4,
+  "gpu_training_tested": false,
+  "compile_speedup_measured": false,
+  "notebook_launched": false
+}

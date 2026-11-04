@@ -1,0 +1,16 @@
+{
+  "id": "anartt/lifemate-planner-caller-compiled",
+  "title": "LifeMate Planner Caller Compiled",
+  "code_file": "kaggle_planner_caller_compiled.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
