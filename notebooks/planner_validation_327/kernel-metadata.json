@@ -1,0 +1,17 @@
+{
+  "id": "cymeu4l0t/lifemate-planner-validation-327",
+  "title": "LifeMate Planner validation 327",
+  "code_file": "kaggle_planner_validation_327.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/lifemate-v6-planner-validation-inputs",
+    "cymeu4l0t/lifemate-v6-completed-adapters"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
