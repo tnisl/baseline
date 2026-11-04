@@ -1,0 +1,10 @@
+{
+  "cpu_checks": "pass",
+  "train_only_probes_prepared": 12,
+  "input_tokens_min": 1408,
+  "input_tokens_max": 4677,
+  "max_new_tokens": 320,
+  "context_limit": 8192,
+  "held_out_inputs_used": false,
+  "gpu_comparison_completed": false
+}

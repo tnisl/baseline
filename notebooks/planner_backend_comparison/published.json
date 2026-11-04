@@ -1,0 +1,8 @@
+{
+  "url": "https://www.kaggle.com/code/anartt/lifemate-planner-backend-comparison",
+  "launched": true,
+  "purpose": "12 train-only Planner probes; 4 core configurations + 2 base controls + 1 CUDA-Graph control",
+  "training": false,
+  "source_verified": true,
+  "inputs_verified": true
+}
