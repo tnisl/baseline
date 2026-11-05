@@ -1,0 +1,14 @@
+{
+  "id": "cymeu4l0t/lifemate-two-node-planner-qwen35",
+  "title": "LifeMate Two Node Planner Qwen35",
+  "code_file": "kaggle_planner.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": ["cymeu4l0t/zaloai-dataset"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

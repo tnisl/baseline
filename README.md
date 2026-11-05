@@ -1,8 +1,8 @@
 # LifeMate — Planner / Caller fine-tune độc lập
 
-Nhánh này đặc tả một phương pháp mới cho LifeMate với đúng hai node LLM: **Planner** và **Caller**. Hiện nhánh chỉ có README; chưa có mã nguồn, dữ liệu sinh, notebook, checkpoint hoặc kết quả đánh giá.
+Nhánh này triển khai phương pháp mới cho LifeMate với đúng hai node LLM: **Planner** và **Caller**. Hiện đã có pipeline fine-tune Planner bằng Unsloth DDP và validation bằng Transformers, cùng notebook Kaggle có chế độ smoke-test. Caller và agent runtime chưa triển khai; chưa có checkpoint hay kết quả chất lượng của phương pháp mới.
 
-Tài liệu là hợp đồng thiết kế để triển khai và kiểm tra sau này. Các ví dụ JSON minh họa giao diện, không phải dự đoán đã chạy. Không kế thừa mặc định kiến trúc, prompt, model, adapter, vòng sửa lỗi hay cấu hình huấn luyện từ phương pháp trước.
+Tài liệu mô tả contract hai node và cách chạy phần Planner đã triển khai. Các ví dụ JSON minh họa giao diện, không phải dự đoán đã chạy. System prompt nằm ở [prompts.py](src/twonode/prompts.py); hướng dẫn chạy nằm ở [mục 14](#14-chạy-fine-tune-planner) và [notebook Planner](notebooks/planner/README.md).
 
 ## 1. Phạm vi đã thống nhất
 
@@ -312,7 +312,7 @@ Ngân sách bước/call cụ thể chưa chốt. Cần giới hạn hữu hạn
 
 Chia train/validation ở cấp episode trước khi nội suy thành mẫu từng bước. Mọi prefix của cùng episode phải ở cùng partition.
 
-Nhóm các request trùng hoặc cùng template khi có thể để giảm rò rỉ; không chia ngẫu nhiên các dòng Planner/Caller sau khi sinh. Split ID, seed và hash phải được lưu khi triển khai. Nhánh này chưa chọn split và không mặc định dùng split cũ.
+Giữ nguyên [split.txt](split.txt): 200 validation IDs, SHA-256 e810b418d7018437a16892350e01cbee9526cf43ab4a190101433d4508498d2f. Partition thô có 1.345 train / 200 validation episodes. Không chia lại sau khi nội suy prefix. Pipeline audit request trùng sau chuẩn hóa và báo các nhóm vượt partition; không tự chuyển ID. Trên bản dữ liệu hiện tại không có nhóm request trùng chính xác vượt split này; chưa khẳng định đã tách hết template/ngữ nghĩa gần nhau.
 
 Không dùng public/private có nhãn tự tạo để train hoặc tune. Không đưa validation vào optimizer update hoặc tạo luật prompt riêng theo ID.
 
@@ -509,16 +509,21 @@ ID và hash ở trên là placeholder minh họa. Stop ngay từ đầu cho tool
 | Planner tool/stop; Caller arguments/missing_info | Contract tối thiểu cho baseline |
 | Missing_info thành meta call rồi kết thúc | Chính sách baseline |
 | Lỗi thực thi kết thúc, read rỗng hợp lệ tiếp tục | Chính sách baseline |
-| Backbone và cách load hai node | Chưa chọn |
+| Backbone Planner | Qwen/Qwen3.5-4B, pin revision trong config |
+| Cách load đồng thời hai node khi chạy agent | Chưa triển khai |
 | ASR và có fine-tune ASR hay không | Chưa chọn |
-| JSON Schema/TypeScript hay biểu diễn schema khác | Chưa chọn |
-| Ngôn ngữ prompt | Chưa chọn |
-| Full FT/LoRA/QLoRA, rank, LR, batch, epoch | Chưa chọn |
-| Split, seed, checkpoint selection chi tiết | Chưa chọn |
-| Độ dài context/output và ngân sách bước/call | Chưa chọn, phải đáp ứng giới hạn BTC |
-| Token-level grammar/enforcer | Chưa chọn; không mặc định áp dụng |
+| Biểu diễn schema Planner | JSON, giữ parameters/description/kind/returns |
+| Ngôn ngữ prompt | Tiếng Anh; không sinh rationale |
+| Planner LoRA | Không lượng tử hóa; rank16/alpha32/dropout0, LR5e-5, 2 epoch |
+| Batch / GPU | Microbatch2 × T4 GPU2 × accumulation2 = 8, DDP |
+| Precision | Yêu cầu base FP16; giữ FP32 computation nếu Unsloth yêu cầu trên T4; không ép FP16 autocast |
+| Split, seed, checkpoint | split.txt 200 IDs, seed42, final adapter; không validation trong train |
+| Context/output Planner | 8.192 / 64 token; thinking tắt, không cắt input |
+| Ngân sách bước/call của agent runtime | Chưa chốt |
+| Token-level grammar/enforcer | Không dùng trong validation hiện tại |
 | Dữ liệu tăng cường hoặc negative examples Caller | Chưa có trong baseline đầu tiên |
-| Mã nguồn, notebook, Docker, training/evaluation runs | Chưa triển khai |
+| Mã nguồn và notebook Planner | Đã triển khai; chưa chạy GPU trong đợt triển khai này |
+| Caller, agent runtime, Docker | Chưa triển khai |
 
 ## 13. Tiêu chí nghiệm thu triển khai sau này
 
@@ -530,4 +535,91 @@ ID và hash ở trên là placeholder minh họa. Stop ngay từ đầu cho tool
 6. Chạy đủ validation với reference-prefix node metrics và workflow thực tế, tính cả lỗi/timeout.
 7. Báo riêng transcript sạch và ASR end-to-end; xác nhận ngân sách tham số, context, latency và khả năng chạy offline trước khi coi là solution contest hoàn chỉnh.
 
-Hiện chưa có các kết quả nghiệm thu này. Nội dung nhánh là đặc tả thiết kế, không phải tuyên bố một hệ thống đã huấn luyện hoặc đã đạt giới hạn cuộc thi.
+Các kiểm tra CPU và dữ liệu không thay thế nghiệm thu GPU, chất lượng workflow hoặc giới hạn thời gian cuộc thi. Chưa coi phương pháp là agent contest hoàn chỉnh.
+
+## 14. Chạy fine-tune Planner
+
+### 14.1. Module và trách nhiệm
+
+~~~text
+src/twonode/
+  prompts.py        System prompt tiếng Anh và input allowlist
+  data.py           Episode -> prefix examples; gold next-tool / stop
+  config.py         Cấu hình serializable cho các process
+  tokenization.py   Non-thinking template, completion mask, padding
+  train.py          Unsloth DDP, chỉ train Planner
+  evaluate.py       Transformers + PEFT trong process mới
+  metrics.py        Chấm output tự sinh, không revise
+  run.py            Điều phối prepare -> tokenize -> train -> validation
+  io.py             JSON artifacts và fingerprints
+tests/              CPU contracts và Qwen3.5 nhỏ để kiểm tra adapter reload
+notebooks/planner/  Notebook generator, embedded notebook, requirements
+split.txt           200 validation episode IDs cố định
+~~~
+
+Các module data/prompt/metrics độc lập với model runtime. Import package không import Unsloth/Torch. Khi bổ sung Caller, thêm prompt, dataset task và metric riêng; không đổi trách nhiệm Planner hoặc dùng adapter Planner khởi tạo Caller.
+
+### 14.2. Notebook Kaggle
+
+Mở notebook được liên kết trong [hướng dẫn Planner](notebooks/planner/README.md), chọn T4 ×2 và Internet. Notebook đã nhúng source/split; chỉ cần gắn dataset cuộc thi riêng tư. Nếu dataset là ZIP, chỉ lấy train.jsonl và train_tools_catalog.json; không lấy file environment.
+
+- PROFILE="smoke": 16 train episodes, 8 validation episodes, 4 optimizer steps. Cùng microbatch2/GPU và accumulation2 như full. Chọn cả episode dài, nhiều call, missing_info và no-action khi có.
+- PROFILE="full": toàn bộ train partition, 2 epoch, sau đó validation trên mọi prefix của đủ 200 validation episodes.
+- Đổi RUN_NAME cho mỗi lần chạy. Không tự ghi đè/resume run cũ và không dùng adapter smoke làm trọng số khởi tạo full.
+- Mặc định so sánh base và adapter trên cùng prompt token IDs, greedy decoding, không repair/enforcer. Base là cùng backbone đóng băng với adapter được disable.
+
+Pipeline không thực hiện CE/generation validation trong train, không chọn best-loss checkpoint và không early-stop. Checkpoint định kỳ phục vụ lưu tiến trình; adapter xuất cuối là final adapter. Validation chỉ bắt đầu sau khi hai process DDP thoát hoàn toàn.
+
+### 14.3. Chạy từ command line
+
+Trong Python3.12 environment có CUDA và hai T4, cài requirements của notebook và package:
+
+~~~bash
+pip install -r notebooks/planner/requirements.txt
+pip install -e .
+python -m twonode.run --data-root ../train+public_test --split-file split.txt --output outputs/planner_smoke_01 --profile smoke
+python -m twonode.run --data-root ../train+public_test --split-file split.txt --output outputs/planner_full_01 --profile full
+~~~
+
+Lệnh run tự launch torchrun hai process cho training, không chạy lệnh run bên trong torchrun lần nữa. Có --revision, --max-length, --eval-batch, --epochs, --learning-rate và --skip-base. Không tự giảm microbatch hoặc đổi precision khi OOM.
+
+### 14.4. Dữ liệu và tokenization đã audit local
+
+Trên bản dữ liệu hiện tại:
+
+| Partition | Episode thô | Episode dùng | Mẫu Planner | Tool targets | Stop targets |
+|---|---:|---:|---:|---:|---:|
+| Train | 1.345 | 1.344 | 4.198 | 3.043 | 1.155 |
+| Validation | 200 | 200 | 667 | 495 | 172 |
+
+Train_1696 có thao tác gold báo không tìm thấy chat_id nên được quarantine khỏi train. Validation không bị loại mẫu. Trong số tool targets, 189 train và 28 validation là mapping từ gold sys.ask_missing_info sang tool đích. Không tạo stop sau meta call.
+
+Với tokenizer revision851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a và system prompt hiện tại, prompt dài nhất train7.593 / validation7.126 token. Mọi prompt cộng ngân sách output64 đều vừa context8.192; không truncate. Nếu thay prompt/schema/tokenizer, phải đo lại.
+
+### 14.5. Precision và tương thích T4
+
+Qwen3.5 có Gated DeltaNet. Unsloth giữ một số phép tính FP32 khi yêu cầu FP16 trên T4 để tránh nonfinite gradients. Code giữ cơ chế này và tắt global FP16 autocast khi nhận cờ forced-float32; không mô tả đó là pure-FP16 compute. Trọng số thực tế, trainable parameters, LoRA targets và peak VRAM được ghi theo từng GPU.
+
+Nguồn: [Unsloth loader](https://github.com/unslothai/unsloth/blob/main/unsloth/models/loader.py), [Qwen3.5 fine-tuning](https://unsloth.ai/docs/models/qwen3.5/fine-tune), [DDP](https://unsloth.ai/docs/basics/multi-gpu-training-with-unsloth/ddp).
+
+Validation dùng AutoModelForImageTextToText và PeftModel.from_pretrained để reload adapter lên model gốc bằng Transformers thông thường. Process mới không import Unsloth; dùng FP16 inference và giữ cơ chế FP32 nội bộ của Transformers theo config model. Hai GPU chia các prefix không trùng, mỗi GPU một model replica.
+
+### 14.6. Artifact và kiểm tra
+
+Trong thư mục run có config.json, prepared/manifest.json, tokenization_report.json, training_report.json, train_rank0/1.json, adapter/, packages.txt và validation/.
+
+Validation xuất:
+
+- adapter.predictions.jsonl và base.predictions.jsonl: output nguyên bản, gold, lỗi, token counts và thông tin từng prefix.
+- adapter.metrics.json / base.metrics.json: decision/tool accuracy, stop precision/recall/F1, stop sớm/tiếp tục thừa, JSON/contract validity, macro theo episode/tool và breakdown theo app/bước/read/write.
+- comparison.json: số mẫu chỉ base đúng, chỉ adapter đúng, cùng đúng/sai và accuracy delta.
+- report.json: báo cáo gộp, ghi rõ đây là reference-prefix evaluation.
+
+Notebook đóng gói artifacts.zip, bỏ compile caches và intermediate checkpoints. Artifact chứa dữ liệu thi được giữ riêng tư; không commit prepared data hoặc weights vào Git.
+
+~~~bash
+PYTHONPATH=src python -B -m unittest discover -s tests -v
+python notebooks/planner/make_notebook.py
+~~~
+
+Kiểm tra tensor cần Torch/Transformers5/PEFT; test Qwen3.5 kích thước nhỏ xác minh loss/gradient hữu hạn, LoRA cập nhật, export/reload và generate bằng Transformers. Smoke trên T4 vẫn là bước kiểm chứng GPU cần người dùng chạy, không thay thế bằng CPU checks.

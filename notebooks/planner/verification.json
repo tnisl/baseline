@@ -1,0 +1,49 @@
+{
+  "checks": {
+    "unit_and_tensor_tests": 9,
+    "passed": 9,
+    "notebook_schema_valid": true,
+    "embedded_source_matches": true,
+    "gpu_test_run": false
+  },
+  "cpu_environment": {
+    "python": "3.12.14",
+    "torch": "2.8.0+cpu",
+    "transformers": "5.2.0",
+    "peft": "0.18.0"
+  },
+  "data_audit": {
+    "raw_episode_counts": {
+      "train": 1345,
+      "validation": 200
+    },
+    "split_sha256": "e810b418d7018437a16892350e01cbee9526cf43ab4a190101433d4508498d2f",
+    "quarantine": [
+      {
+        "id": "train_1696",
+        "partition": "train",
+        "failed_steps": [
+          2
+        ],
+        "excluded_from_train": true
+      }
+    ],
+    "exact_request_groups_crossing_split": []
+  },
+  "full_example_counts": {
+    "train": 4198,
+    "validation": 667
+  },
+  "longest_prompt_tokens": {
+    "train": 7593,
+    "validation": 7126
+  },
+  "context_limit": 8192,
+  "max_new_tokens": 64,
+  "no_truncation": true,
+  "notebook_sha256": "bedc63f5d527150b42ff42119d0fd7a5691558fa8618f94c4e48539d7f07203c",
+  "limitations": [
+    "No Unsloth DDP or GPU smoke run performed.",
+    "CPU tiny Qwen3.5 verifies contracts and adapter reload, not trained model quality."
+  ]
+}
