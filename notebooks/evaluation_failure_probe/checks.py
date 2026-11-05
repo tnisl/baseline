@@ -3,9 +3,15 @@ from pathlib import Path
 H=Path(__file__).resolve().parent;sys.path.insert(0,str(H/'runtime'))
 import umilife
 umilife.__path__.append(str(H.parents[1]/'umilife'))
-from umilife.eval_probe import trim_generated,repetition,groups,fingerprint,BACKENDS,HF_GENERATION
+from umilife.eval_probe import trim_generated,repetition,groups,fingerprint,BACKENDS,HF_GENERATION,model_settings
 from umilife.probe_summary import summarize_probe
 class Checks(unittest.TestCase):
+ def test_raw_quantization_dtype_metadata(self):
+  from types import SimpleNamespace
+  class Dtype:
+   def __str__(self):return 'torch.float16'
+  model=SimpleNamespace(config=SimpleNamespace(quantization_config={'compute_dtype':Dtype()}),named_parameters=lambda:[])
+  self.assertEqual(json.loads(json.dumps(model_settings(model)))['quantization_config']['compute_dtype'],'torch.float16')
  def test_stops_and_loops(self):
   self.assertEqual(trim_generated([5,9,0,0],{9}),([5,9],'eos'))
   self.assertEqual(trim_generated([5]*512,{9}),([5]*512,'length'))

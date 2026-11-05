@@ -13,7 +13,9 @@ HF_GENERATION={'max_new_tokens':512,'do_sample':False,'num_beams':1,'use_cache':
 
 def model_settings(model):
     quant=getattr(model.config,'quantization_config',None)
-    return {'quantization_config':quant.to_dict() if hasattr(quant,'to_dict') else quant,
+    # Unsloth can expose a raw config dict with torch.dtype values instead of a BNB config object.
+    quant=json.loads(json.dumps(quant.to_dict() if hasattr(quant,'to_dict') else quant,default=str))
+    return {'quantization_config':quant,
             'lora_parameter_dtypes':dict(Counter(str(p.dtype) for n,p in model.named_parameters() if 'lora_' in n)),
             'attention_implementation':getattr(model.config,'_attn_implementation',None)}
 

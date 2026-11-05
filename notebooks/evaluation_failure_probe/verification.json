@@ -1,5 +1,5 @@
 {
-  "cpu_checks": 4,
+  "cpu_checks": 5,
   "syntax": "pass",
   "prompt_token_batch_parity_fixture": "pass",
   "summary_token_parity_guard": "pass",
@@ -16,5 +16,6 @@
     "vllm"
   ],
   "cases": 16,
-  "expected_outputs": 96
+  "expected_outputs": 96,
+  "raw_torch_dtype_metadata_serialization": "pass"
 }
