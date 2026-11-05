@@ -1,47 +1,41 @@
-# Diagnose slow/looping evaluation on six real prefixes
+# Experiment1: base precision x LoRA dtype
 
 Kaggle: https://www.kaggle.com/code/lctrnnguynkhi/lifemate-evaluation-failure-probe
 
-Run yourself on **T4 x2**, Internet on. Publication is QuickSave only. No finetuning, optimizer updates, ASR, tool execution, retries or enforcer.
+Four cases, one authentic Planner checkpoint at step75:
 
-Four historical looping states: `train_1070` step1, `train_0550` step1, `train_1124` step1, `train_0486` step0. Controls: `train_1405` step1, `train_0442` step0. Uses the exact saved validation-prefix messages from session365792172; target/reference fields are only used for scoring/CE probes, never passed to generation. Six original historical step100 outputs remain in the private input dataset.
+| Case | Base weights | LoRA parameters |
+|---|---|---|
+| nf4_lora_fp32 | NF4, double quantization, FP16 compute | FP32 |
+| nf4_lora_fp16 | NF4, double quantization, FP16 compute | FP16 |
+| fp16_lora_fp32 | FP16 | FP32 |
+| fp16_lora_fp16 | FP16 | FP16 |
 
-**Step100 weights were lost on cancellation.** The latest saved adapter is **step75** and is copied unchanged with hashes. This notebook cannot reproduce step100 exactly. It does not use the older completed Planner v4 adapter or its old prompts.
+All cases use plain Transformers4.56.2 + PEFT0.17.1, Torch2.8.0, bitsandbytes0.47.0 and **SDPA**. The process asserts no Unsloth/Unsloth Zoo import. The pinned training package lock is reused for version parity; installed packages do not imply imported patches. Four fresh subprocesses run sequentially on the same GPU0. Select T4 x2 on Kaggle; this controlled test uses only its first GPU. Publication is QuickSave, no automatic run.
 
-Sixteen cases,96 outputs:
+For each case, run the same six original validation prefixes at **batch1 and4**:48 outputs in total. Four historical looping states: train_1070 step1, train_0550 step1, train_1124 step1, train_0486 step0. Controls: train_1405 step1, train_0442 step0. Same pinned Qwen/Qwen3-4B-Instruct-2507 revision, original English prompt/TypeScript schema, greedy, max512 output tokens, EOS151645/151643 and pad151643. The512 cap stays for comparison with previous diagnostic runs; it is independent of the finetuning notebook's256/192 caps. No training, optimizer, ASR, tool execution, repairs or enforcer.
 
-| Engine | Model | Batch sizes | GPU |
-|---|---|---|---|
-| Unsloth2025.10.9 / Transformers | Base with zero LoRA contribution; step75 | 1,4 | 0 |
-| Transformers4.56.2 + PEFT0.17.1 NF4 | Base; step75 | 1,4 | 0 |
-| Transformers4.56.2 + PEFT0.17.1 FP16 | Base; step75 | 1,4 | 0 |
-| vLLM0.9.2 | Base; step75 | 1,4 | 1 |
+The adapter is explicitly cast after PEFT loading, then **reloaded from the original checkpoint into that dtype**. This avoids testing FP32 values already rounded by an initial FP16 load. Every adapter tensor is compared against original source weights cast to the requested dtype; dtype is verified again after every batch. Only LoRA parameters are cast, never the quantized base model. Any mismatch fails visibly without fallback.
 
-Fresh subprocess for each engine/model case, sequential execution. Plain Transformers cases run first, with no Unsloth import or monkey patches, using SDPA and the same pinned Torch/Transformers/PEFT/bitsandbytes package versions as the Unsloth environment. HF cases share installed packages to avoid tripling disk usage; process state is isolated. Each compares batch1/4 with the same six messages, tokenizer IDs, greedy decoding, max512 tokens, no repetition penalty or schema enforcer. Unsloth compile ON, resident-style inference context with hidden-state/logits flags switched exactly as periodic eval. A supervised CE forward runs before generation and after each generation batch to verify restoration; no backward or optimizer. T4 vLLM compatibility patch, graphs ON, prefix caching OFF. Base/adapter weights are not shared between processes.
+Private input remains `lctrnnguynkhi/lifemate-evaluation-failure-inputs`; manifests and file hashes are verified. The source contains exact unchanged messages from session365792172. Target labels only enter scoring, never generation. Historical step100 outputs remain available for reference; its weights were not saved, so this is not an exact reproduction of step100.
 
-Compare **Unsloth NF4 with plain Transformers NF4**, **Transformers FP16 with vLLM FP16**, and **Transformers NF4 with FP16**. NF4 uses double quantization and FP16 compute. Actual quantization config, LoRA tensor dtypes and attention implementation are recorded for HF cases; remaining loading/kernel differences can still affect outputs. Plain FP16/NF4 base has no adapter; Unsloth base has verified zero LoRA contribution. Explicit greedy settings, max512 and EOS IDs151645/151643 apply to every case; effective HF arguments are saved separately from model defaults. This is a standalone evaluation probe, not a recreated DDP training session with optimizer/gradients/memory pressure. Startup, warmup, compilation and processing order affect latency comparisons.
+Outputs: `/kaggle/working/evaluation_failure_probe_dtype2x2/`.
 
-Private input `lctrnnguynkhi/lifemate-evaluation-failure-inputs` contains authentic step75 adapter/config, six unchanged prepared records, catalog, historical step100 outputs and hashes. No full competition dataset required.
+- `report.md`, `report.json`: repetition/schema/match/length metrics and comparisons holding either base precision or LoRA dtype fixed.
+- `<case>_step75.jsonl`: raw output, exact generated token IDs, stop reason, prompt hash and batch time.
+- `<case>_step75_settings.json`: actual quantization config, requested/actual LoRA dtype, source-weight verification and attention implementation. Summary rejects an incorrect dtype or attention backend.
+- `<case>_step75.log`: full startup/generation/error output.
+- `input_manifest.json`, `source.json`: provenance; separate output root avoids mixing previous experiment results.
 
-Outputs at `/kaggle/working/evaluation_failure_probe_precision/`:
+Interpretation: if both NF4 cases loop and both FP16 cases do not, base quantization/loading is implicated more strongly. If changing LoRA dtype changes behavior while holding base precision fixed, adapter arithmetic/rounding matters. These observations do not prove a particular library bug, and dtype interacts with the compute kernels. The six selected prefixes are not a validation score. Startup/warmup and generated lengths affect timing comparisons. Failed runs retain raw outputs even if final summary is unavailable.
 
-- `report.md`, `report.json`: per-case schema/match/repetition/length counts, generation time and paired comparisons.
-- `<engine>_<model>.jsonl`: raw text, exact generated token IDs/count, EOS/length/stop reason, prompt hash and batch duration.
-- `<engine>_<model>_settings.json`: effective generation settings and precision.
-- `<engine>_<model>.log`: startup, generation progress, pre/post CE restoration checks and underlying exceptions.
-- `input_manifest.json`, `source.json`: source/data/checkpoint provenance. CPU source verification does not establish GPU compatibility.
+Build: `python make_notebook.py`.
 
-HF token counts include EOS when present; vLLM token count follows returned token IDs and may omit its stop token. Compare finish/stop reasons as well as counts. HF per-row counts strip padded positions at first configured EOS. Batch duration is shared by rows in that batch; report sums it only once. Prompt IDs must match in all sixteen cases.
+CPU checks:
 
-Interpretation:
+```bash
+uv run --no-project --python 3.12 --with jsonschema python checks.py
+uv run --no-project --python 3.12 --with jsonschema --with torch==2.8.0+cpu --with transformers==4.56.2 --with peft==0.17.1 --extra-index-url https://download.pytorch.org/whl/cpu python check_plain_hf.py
+```
 
-- Batch4-only changes suggest batching/numerics/cache/padding effects, not proof of a specific bug.
-- Adapter-only repetition on both engines suggests checkpoint behavior; it does not establish label noise.
-- Unsloth-only repetition at matched NF4 points toward its loading/kernel/mode-transition path. Check saved dtype/config details before attributing a specific bug.
-- Plain Transformers NF4-only repetition versus FP16 suggests sensitivity to quantization.
-- Differences between plain Transformers FP16 and vLLM FP16 point toward inference implementation/numerics.
-- No repetition at step75 does not clear the lost step100 checkpoint or the original training-time state.
-
-Build `python make_notebook.py`; CPU checks `uv run --no-project --python 3.12 --with jsonschema python checks.py`. Failure-selected cases are diagnostics, not representative validation metrics. No GPU run launched.
-
-CPU API integration: `uv run --no-project --python 3.12 --with torch==2.8.0+cpu --with transformers==4.56.2 --with peft==0.17.1 --extra-index-url https://download.pytorch.org/whl/cpu python check_plain_hf.py`. This verifies Qwen3/PEFT generation APIs, not GPU NF4/FP16 behavior.
+The real tiny Qwen3/PEFT CPU test checks explicit FP16/FP32 adapter casts, source-weight restoration, unchanged base tensors and left-padded generation. It does not establish GPU NF4 behavior. No GPU run launched.

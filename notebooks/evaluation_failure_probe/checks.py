@@ -3,7 +3,7 @@ from pathlib import Path
 H=Path(__file__).resolve().parent;sys.path.insert(0,str(H/'runtime'))
 import umilife
 umilife.__path__.append(str(H.parents[1]/'umilife'))
-from umilife.eval_probe import trim_generated,repetition,groups,fingerprint,BACKENDS,HF_GENERATION,model_settings
+from umilife.eval_probe import trim_generated,repetition,groups,fingerprint,BACKENDS,HF_GENERATION,model_settings,CASES
 from umilife.probe_summary import summarize_probe
 class Checks(unittest.TestCase):
  def test_raw_quantization_dtype_metadata(self):
@@ -29,14 +29,15 @@ class Checks(unittest.TestCase):
    root=Path(tmp);source=root/'input';source.mkdir();samples=[{'id':f'x{i}','step':0} for i in range(6)]
    (source/'probe_manifest.json').write_text(json.dumps({'samples':samples}))
    for b in BACKENDS:
-    for v in ('base','step75'):
+    for v in ('step75',):
      rows=[{**s,'backend':b,'variant':v,'batch_size':n,'batch_index':i//n,'batch_seconds':2.,'input_ids_sha256':s['id'],
       'generated_tokens':10,'finish_reason':'eos','max_repeated_6gram':0,'raw':'{}','schema_valid':True,'correct':True} for n in (1,4) for i,s in enumerate(samples)]
      (root/f'{b}_{v}.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
-   result=summarize_probe(root,source);self.assertEqual(len(result['cases']),16)
-   self.assertEqual(result['cases']['unsloth/base/batch4']['generation_seconds'],4.)
+     (root/f'{b}_{v}_settings.json').write_text(json.dumps({'requested_lora_dtype':'torch.'+CASES[b][1],'lora_parameter_dtypes':{'torch.'+CASES[b][1]:2},'attention_implementation':'sdpa','lora_source_weights_verified':True,'unsloth_imported':False}))
+   result=summarize_probe(root,source);self.assertEqual(len(result['cases']),8)
+   self.assertEqual(result['cases']['nf4_lora_fp32/step75/batch4']['generation_seconds'],4.)
    self.assertTrue(all(r['prompt_token_ids_identical'] for r in result['paired']))
-   path=root/'vllm_step75.jsonl';rows=[json.loads(s) for s in path.read_text().splitlines()];rows[0]['input_ids_sha256']='wrong';path.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+   path=root/'fp16_lora_fp16_step75.jsonl';rows=[json.loads(s) for s in path.read_text().splitlines()];rows[0]['input_ids_sha256']='wrong';path.write_text(''.join(json.dumps(r)+'\n' for r in rows))
    with self.assertRaisesRegex(AssertionError,'parity'):summarize_probe(root,source)
  def test_source_and_payload(self):
   nb=json.loads((H/'kaggle_evaluation_failure_probe.ipynb').read_text())

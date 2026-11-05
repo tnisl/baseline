@@ -1,21 +1,13 @@
 {
   "cpu_checks": 5,
-  "syntax": "pass",
-  "prompt_token_batch_parity_fixture": "pass",
-  "summary_token_parity_guard": "pass",
-  "stop_and_repetition_fixture": "pass",
-  "source_payload_parity": "pass",
-  "gpu_run": false,
-  "adapter_step": 75,
-  "historical_step": 100,
-  "plain_transformers_peft_cpu_integration": "pass: Qwen3 generation and adapter reload; no Unsloth imported",
-  "backends": [
-    "unsloth",
-    "transformers_nf4",
-    "transformers_fp16",
-    "vllm"
+  "cpu_peft_dtype_integration": "pass: explicit casts and source-weight restoration, base unchanged, left-padded generation, no Unsloth import",
+  "cases": 4,
+  "batches": [
+    1,
+    4
   ],
-  "cases": 16,
-  "expected_outputs": 96,
-  "raw_torch_dtype_metadata_serialization": "pass"
+  "expected_outputs": 48,
+  "adapter_step": 75,
+  "max_new_tokens": 512,
+  "gpu_run": false
 }
