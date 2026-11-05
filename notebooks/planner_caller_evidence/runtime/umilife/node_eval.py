@@ -38,6 +38,9 @@ def summarize(rows,role):
     report={'samples':n,'match_accuracy':sum(r['correct'] for r in rows)/n,'schema_valid_rate':sum(r['schema_valid'] for r in rows)/n}
     if role=='planner':
         report['route_accuracy']=sum(r['route_match'] for r in rows)/n
+        calls=[r for r in rows if not r['terminal']]
+        report['tool_accuracy']=sum(r['tool_match'] for r in calls)/len(calls) if calls else None
+        report['tool_samples']=len(calls)
         for kind in ('initial','intermediate','terminal'):
             sub=[r for r in rows if ('terminal' if r['terminal'] else 'initial' if r['step']==0 else 'intermediate')==kind]
             report[kind]={'n':len(sub),'accuracy':sum(r['correct'] for r in sub)/len(sub) if sub else None}
@@ -46,6 +49,7 @@ def summarize(rows,role):
         fields={}
         for row in rows:
             for k,v in row['field_matches'].items():fields.setdefault(k,{'n':0,'correct':0});fields[k]['n']+=1;fields[k]['correct']+=v
+        for value in fields.values():value['accuracy']=value['correct']/value['n']
         report.update(argument_f1=sum(r['argument_f1'] for r in rows)/n,fields=fields)
     return report
 

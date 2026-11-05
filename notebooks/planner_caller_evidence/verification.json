@@ -1,6 +1,6 @@
 {
-  "cpu_tests": 7,
-  "cpu_two_rank_resume": "pass",
+  "cpu_tests": 8,
+  "cpu_two_rank_resume": "pass: periodic metrics persisted identically through checkpoint/resume",
   "causal_loss_and_gradients": "equivalent_with_and_without_projection_checkpoint",
   "full_local_data_preparation": "pass",
   "train_split_ids": 1300,
@@ -58,5 +58,6 @@
     "caller": 441
   },
   "gpu_run": false,
-  "throughput_benchmark": false
+  "throughput_benchmark": false,
+  "periodic_generation_metrics_cpu": "pass: prompt-only generation, left padding, scoring, RNG/flags/checkpointing restoration including failure"
 }

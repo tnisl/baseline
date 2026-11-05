@@ -40,13 +40,15 @@ Assistant-only causal cross-entropy, normalized by actual assistant-token count,
 
 Training adds recovery examples and longer targets, so record/step count is larger than the prior notebook. Better throughput does **not** guarantee shorter total wall time. Generation evaluation also adds work.
 
-Cosine LR1e-5,3% warmup; CE eval every100 steps and at end, early-stop patience3/min_delta.001. CE-best remains available even if node generation prefers another checkpoint.
+Cosine LR1e-5,3% warmup; CE and generation eval every100 steps and at end, early-stop patience3/min_delta.001. CE-best and early stopping still use CE; periodic generation metrics do not change checkpoint selection. CE-best remains available even if post-stage node generation prefers another checkpoint.
+
+Each periodic evaluation greedily generates on **all** validation records for the current role (Planner807 / Caller573), sharded across both resident Unsloth models, batch4/GPU, max512 new tokens, no enforcer. Prompts contain messages only; target answers are used exclusively for scoring. It prints schema validity, Planner route/tool accuracy and initial/intermediate/terminal agreement, or Caller full-action match, argument-field F1 and per-field counts. Reports identify this as the resident Unsloth/Transformers backend; numerics may differ from the later vLLM run. No second model is loaded while DDP holds GPUs. Training hidden-state/loss flags, checkpointing and RNG states are restored afterward. This adds potentially substantial evaluation time.
 
 ## Generation metrics and checkpoint selection
 
 After each role finishes, training processes exit and release GPU memory. A separate pinned **vLLM0.9.2 environment** evaluates CE-best and last checkpoints. Two independent GPU workers, batch4 each, greedy generation, no enforcer,512 output tokens,8192 context. T4 prefix caching disabled; CUDA Graphs enabled; validated T4 LoRA compatibility patch retained. The LMFE package remains a transitive pinned dependency of vLLM but is not attached to generation.
 
-Both candidates receive the same messages/token IDs in each paired probe. If adapter files are identical, evaluate once. Workers flush output and parent prints progress. Model generation is performed **after training a role**, not inside every100-step CE evaluation.
+Both candidates receive the same messages/token IDs in each paired probe. If adapter files are identical, evaluate once. Workers flush output and parent prints progress. This post-stage vLLM comparison is additional to the resident-model generation evaluations during training.
 
 Planner reports route/tool agreement, initial/intermediate/terminal agreement, schema validity and calls proposed after reference completion. Caller reports full-action match, argument-field F1 and per-field accuracy, including IDs/times. These use exact/fuzzy annotation comparisons, not a universal semantic checker; valid alternative tool orders can mismatch labels.
 
@@ -59,6 +61,8 @@ Root: `/kaggle/working/planner_caller_evidence/<RUN_NAME>/`.
 - `prepared/`: new rationales/targets, cached tokens, manifest, per-episode `data_audit.json` and scoring references.
 - `training/adapters/<role>/`: CE-best adapter, tokenizer, lineage and CE history.
 - `training/checkpoints/<role>/`: last two complete resume snapshots, best snapshot and atomic `latest.json`. Includes optimizer/scheduler/scaler/per-rank RNG and batch cursor.
+- `training/checkpoints/<role>/eval_history.json`: CE and generation metrics written at every eval, also preserved in resume snapshots and final `training_history.json`.
+- `training/node_eval/<role>/step-XXXXXXXX/`: periodic generation `report.json` and raw outputs in `gpu0.jsonl` / `gpu1.jsonl`.
 - `node_eval/<role>/`: candidate configuration, per-GPU logs/raw generations and `report.json`.
 - `selected_adapters/<role>/`: self-contained recommended inference adapter, tokenizer and selection provenance. Exported `final_adapter` hash is explicitly a safetensors-file hash; original CE-best model-state hash is retained separately. Do not confuse these hash conventions.
 - `selected_adapters/checkpoint_manifest.json`, `data_contract.json`: file hashes, roles and prompt/data provenance.
