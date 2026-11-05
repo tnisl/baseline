@@ -1,0 +1,11 @@
+{
+  "cpu_checks": 4,
+  "syntax": "pass",
+  "prompt_token_batch_parity_fixture": "pass",
+  "summary_token_parity_guard": "pass",
+  "stop_and_repetition_fixture": "pass",
+  "source_payload_parity": "pass",
+  "gpu_run": false,
+  "adapter_step": 75,
+  "historical_step": 100
+}

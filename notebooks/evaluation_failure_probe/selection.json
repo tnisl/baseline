@@ -1,0 +1,47 @@
+{
+  "source_session_id": 365792172,
+  "adapter_step": 75,
+  "historical_output_step": 100,
+  "exact_step100_reproduction": false,
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "samples": [
+    {
+      "id": "train_1070",
+      "step": 1,
+      "category": "historical_loop"
+    },
+    {
+      "id": "train_0550",
+      "step": 1,
+      "category": "historical_loop"
+    },
+    {
+      "id": "train_1124",
+      "step": 1,
+      "category": "historical_loop"
+    },
+    {
+      "id": "train_0486",
+      "step": 0,
+      "category": "historical_loop"
+    },
+    {
+      "id": "train_1405",
+      "step": 1,
+      "category": "control"
+    },
+    {
+      "id": "train_0442",
+      "step": 0,
+      "category": "control"
+    }
+  ],
+  "files": {
+    "adapter_step75/adapter_config.json": "8575390be392c1c97918621a7c483e2253616cf052b78394dc7477edd6114da7",
+    "adapter_step75/adapter_model.safetensors": "431241a94fb1e6fc9d3a0b62da7107b43b67cb2efd32da598ea3974394375f38",
+    "catalog.json": "037908ab32dfb5de34b300a5928383e091d887942d1cb75658122c705f6c45f2",
+    "historical_step100.json": "62c274d047c9d8b2038d1a6418127414d7a50de17a26fb98cae7e16b47c8f550",
+    "records.jsonl": "fe5940212f5347629674b4d35c07b2bdb98dbebd352685dabd2a798da48221b2"
+  }
+}

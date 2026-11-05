@@ -8,6 +8,7 @@ Repo giữ các notebook train, validation và chẩn đoán đang dùng. Prompt
 | Bản train v2 để đối chiếu | [planner_caller_compiled](notebooks/planner_caller_compiled/README.md) | [Training v2](https://www.kaggle.com/code/anartt/lifemate-planner-caller-compiled) |
 | Validation đầy đủ, 245 mẫu | [concise_validation_fast](notebooks/concise_validation_fast/README.md) | [Validation](https://www.kaggle.com/code/anartt/lifemate-concise-validation-fast) |
 | Pipeline trên split_200, adapter cũ | [pipeline_validation_200](notebooks/pipeline_validation_200/README.md) | [Validation 200](https://www.kaggle.com/code/lctrnnguynkhi/lifemate-pipeline-validation-split200) |
+| Chẩn đoán eval bị lặp/chậm, 6 mẫu | [evaluation_failure_probe](notebooks/evaluation_failure_probe/README.md) | [Eval probe](https://www.kaggle.com/code/lctrnnguynkhi/lifemate-evaluation-failure-probe) |
 | Kiểm tra 4 mẫu từng lỗi | [unguided_failure_subset](notebooks/unguided_failure_subset/README.md) | [Diagnostic](https://www.kaggle.com/code/anartt/lifemate-unguided-failure-subset) |
 | So sánh base với adapter | [base_adapter_comparison](notebooks/base_adapter_comparison/README.md) | [Comparison](https://www.kaggle.com/code/anartt/lifemate-base-adapter-comparison) |
 
@@ -35,6 +36,7 @@ notebooks/
   planner_caller_compiled/    # Train v2 để đối chiếu
   concise_validation_fast/   # Full valid, hai worker GPU
   pipeline_validation_200/   # Split 200 yêu cầu, adapter/prompt cũ; có audit giao train
+  evaluation_failure_probe/ # Base/step75, Unsloth/vLLM, batch1/4 trên sáu prefix
   unguided_failure_subset/   # Chẩn đoán bốn mẫu
   base_adapter_comparison/   # Cùng đầu vào, base vs adapter
 umilife/                     # Core, backend Transformers, train/evaluate helpers
