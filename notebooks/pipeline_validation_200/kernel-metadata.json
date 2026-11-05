@@ -1,0 +1,18 @@
+{
+  "id": "lctrnnguynkhi/lifemate-pipeline-validation-split200",
+  "title": "LifeMate Pipeline Validation Split200",
+  "code_file": "kaggle_pipeline_validation_200.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "cymeu4l0t/zaloai-dataset",
+    "lctrnnguynkhi/lifemate-concise-planner-caller-adapters",
+    "lctrnnguynkhi/lifemate-concise-validation-asr"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

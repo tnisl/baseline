@@ -1,0 +1,7 @@
+cffi==2.1.1
+numpy==2.2.6
+pycparser==3.12
+scipy==1.16.2
+sherpa-onnx==2.0.1
+sherpa-onnx-core==2.0.1
+soundfile==0.13.1

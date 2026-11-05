@@ -1,0 +1,13 @@
+{
+  "split_count": 200,
+  "split_sha256": "e810b418d7018437a16892350e01cbee9526cf43ab4a190101433d4508498d2f",
+  "all_ids_in_train_jsonl": true,
+  "adapter_train_overlap": 168,
+  "adapter_validation_overlap": 32,
+  "cpu_workflow_checks": "pass",
+  "gpu_run": false,
+  "adapter_best_steps": {
+    "planner": 500,
+    "caller": 371
+  }
+}
