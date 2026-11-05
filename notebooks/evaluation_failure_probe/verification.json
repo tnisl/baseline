@@ -7,5 +7,14 @@
   "source_payload_parity": "pass",
   "gpu_run": false,
   "adapter_step": 75,
-  "historical_step": 100
+  "historical_step": 100,
+  "plain_transformers_peft_cpu_integration": "pass: Qwen3 generation and adapter reload; no Unsloth imported",
+  "backends": [
+    "unsloth",
+    "transformers_nf4",
+    "transformers_fp16",
+    "vllm"
+  ],
+  "cases": 16,
+  "expected_outputs": 96
 }

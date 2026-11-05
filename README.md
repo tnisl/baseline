@@ -36,7 +36,7 @@ notebooks/
   planner_caller_compiled/    # Train v2 để đối chiếu
   concise_validation_fast/   # Full valid, hai worker GPU
   pipeline_validation_200/   # Split 200 yêu cầu, adapter/prompt cũ; có audit giao train
-  evaluation_failure_probe/ # Base/step75, Unsloth/vLLM, batch1/4 trên sáu prefix
+  evaluation_failure_probe/ # Base/step75, Unsloth/Transformers/vLLM, NF4/FP16, batch1/4
   unguided_failure_subset/   # Chẩn đoán bốn mẫu
   base_adapter_comparison/   # Cùng đầu vào, base vs adapter
 umilife/                     # Core, backend Transformers, train/evaluate helpers

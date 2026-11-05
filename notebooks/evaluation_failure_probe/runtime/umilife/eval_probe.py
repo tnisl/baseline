@@ -6,6 +6,16 @@ from umilife.core import read_jsonl,write_json
 from umilife.node_eval import assess
 MODEL='Qwen/Qwen3-4B-Instruct-2507'
 REVISION='cdbee75f17c01a7cc42f958dc650907174af0554'
+BACKENDS=('unsloth','transformers_nf4','transformers_fp16','vllm')
+EOS_IDS=[151645,151643]
+HF_GENERATION={'max_new_tokens':512,'do_sample':False,'num_beams':1,'use_cache':True,'logits_to_keep':1,
+               'pad_token_id':151643,'eos_token_id':EOS_IDS,'synced_gpus':False,'return_dict_in_generate':False}
+
+def model_settings(model):
+    quant=getattr(model.config,'quantization_config',None)
+    return {'quantization_config':quant.to_dict() if hasattr(quant,'to_dict') else quant,
+            'lora_parameter_dtypes':dict(Counter(str(p.dtype) for n,p in model.named_parameters() if 'lora_' in n)),
+            'attention_implementation':getattr(model.config,'_attn_implementation',None)}
 
 def fingerprint(ids):return hashlib.sha256(json.dumps(ids).encode()).hexdigest()
 def repetition(raw):
@@ -57,8 +67,8 @@ def hf(a,records,catalog,stream):
     assert torch.isfinite(initial_loss);model.train()
     print(json.dumps({'event':'pre_generation_ce_probe','loss':float(initial_loss),'optimizer_updates':0}),flush=True)
     generation=model.generation_config.to_dict();eos=generation.get('eos_token_id')
-    eos_ids=set(eos if isinstance(eos,list) else [eos])
-    write_json(Path(a.output)/f'{a.backend}_{a.variant}_settings.json',{'quantization':'NF4','generation_config':generation,'compile':os.environ.get('UNSLOTH_COMPILE_DISABLE'),'adapter_step':75 if a.variant=='step75' else None})
+    eos_ids=set(EOS_IDS)
+    write_json(Path(a.output)/f'{a.backend}_{a.variant}_settings.json',{'quantization':'NF4','generation_config_defaults':generation,'effective_generation':HF_GENERATION,**model_settings(model),'compile':os.environ.get('UNSLOTH_COMPILE_DISABLE'),'adapter_step':75 if a.variant=='step75' else None})
     for batch_size in (1,4):
         for batch_index,group in enumerate(groups(records,tokenizer,batch_size)):
             width=max(len(ids) for _,ids in group)
@@ -66,8 +76,7 @@ def hf(a,records,catalog,stream):
                    'attention_mask':torch.tensor([[0]*(width-len(ids))+[1]*len(ids) for _,ids in group],device='cuda')}
             torch.cuda.synchronize();started=time.monotonic()
             with generation_context(model,tokenizer,torch.device('cuda',0),FastLanguageModel.for_inference,FastLanguageModel.for_training):
-                out=model.generate(**batch,max_new_tokens=512,do_sample=False,num_beams=1,use_cache=True,logits_to_keep=1,
-                    pad_token_id=tokenizer.pad_token_id,synced_gpus=False,return_dict_in_generate=False)
+                out=model.generate(**batch,**HF_GENERATION)
                 torch.cuda.synchronize();seconds=time.monotonic()-started
                 outputs=[(*trim_generated(ids,eos_ids),None) for ids in out[:,width:].cpu().tolist()]
             save_rows(stream,group,tokenizer,outputs,catalog,a.backend,a.variant,batch_size,seconds,batch_index)
@@ -77,6 +86,33 @@ def hf(a,records,catalog,stream):
             assert torch.isfinite(loss) and model.training and not model.config.use_cache
             assert os.environ['UNSLOTH_RETURN_HIDDEN_STATES']=='1' and os.environ['UNSLOTH_RETURN_LOGITS']=='0'
             print(json.dumps({'event':'restored_ce_probe','batch_size':batch_size,'batch_index':batch_index,'loss':float(loss),'restored':True}),flush=True)
+
+def plain_hf(a,records,catalog,stream):
+    import sys,torch
+    from transformers import AutoModelForCausalLM,AutoTokenizer,BitsAndBytesConfig,set_seed
+    from peft import PeftModel
+    assert not any(n=='unsloth' or n.startswith(('unsloth.','unsloth_zoo')) for n in sys.modules),'Plain Transformers must not import Unsloth patches'
+    set_seed(42)
+    config=BitsAndBytesConfig(load_in_4bit=True,bnb_4bit_quant_type='nf4',bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.float16) if a.backend=='transformers_nf4' else None
+    tokenizer=AutoTokenizer.from_pretrained(MODEL,revision=REVISION,trust_remote_code=False)
+    model=AutoModelForCausalLM.from_pretrained(MODEL,revision=REVISION,torch_dtype=torch.float16,
+        device_map={'':0},quantization_config=config,attn_implementation='sdpa',trust_remote_code=False)
+    if a.variant=='step75':model=PeftModel.from_pretrained(model,str(Path(a.input)/'adapter_step75'),is_trainable=False,autocast_adapter_dtype=False)
+    model.eval();tokenizer.padding_side='left';model.config.use_cache=True
+    assert not any(n=='unsloth' or n.startswith(('unsloth.','unsloth_zoo')) for n in sys.modules)
+    write_json(Path(a.output)/f'{a.backend}_{a.variant}_settings.json',{'effective_generation':HF_GENERATION,
+        **model_settings(model),'unsloth_imported':False,'adapter_step':75 if a.variant=='step75' else None})
+    for batch_size in (1,4):
+        for batch_index,group in enumerate(groups(records,tokenizer,batch_size)):
+            width=max(len(ids) for _,ids in group)
+            batch={'input_ids':torch.tensor([[151643]*(width-len(ids))+ids for _,ids in group],device='cuda'),
+                   'attention_mask':torch.tensor([[0]*(width-len(ids))+[1]*len(ids) for _,ids in group],device='cuda')}
+            torch.cuda.synchronize();started=time.monotonic()
+            with torch.inference_mode():out=model.generate(**batch,**HF_GENERATION)
+            torch.cuda.synchronize();seconds=time.monotonic()-started
+            outputs=[(*trim_generated(ids,set(EOS_IDS)),None) for ids in out[:,width:].cpu().tolist()]
+            save_rows(stream,group,tokenizer,outputs,catalog,a.backend,a.variant,batch_size,seconds,batch_index)
 
 def vllm_probe(a,records,catalog,stream):
     import torch
@@ -90,7 +126,7 @@ def vllm_probe(a,records,catalog,stream):
         max_lora_rank=16,max_model_len=8192,max_num_seqs=4,max_num_batched_tokens=8192,gpu_memory_utilization=.85,
         enable_prefix_caching=options['prefix_caching'],enforce_eager=not options['cuda_graphs'],enable_chunked_prefill=False,
         seed=42,generation_config='vllm',disable_log_stats=True)
-    tokenizer=engine.get_tokenizer();sampling=SamplingParams(temperature=0,seed=42,max_tokens=512,guided_decoding=None)
+    tokenizer=engine.get_tokenizer();sampling=SamplingParams(temperature=0,seed=42,max_tokens=512,stop_token_ids=EOS_IDS,guided_decoding=None)
     lora=LoRARequest('step75',1,str(Path(a.input)/'adapter_step75')) if a.variant=='step75' else None
     write_json(Path(a.output)/f'{a.backend}_{a.variant}_settings.json',{'quantization':'FP16 base','sampling':str(sampling),'runtime':options,'eos_token_id':tokenizer.eos_token_id})
     for batch_size in (1,4):
@@ -102,10 +138,10 @@ def vllm_probe(a,records,catalog,stream):
             save_rows(stream,group,tokenizer,outputs,catalog,a.backend,a.variant,batch_size,seconds,batch_index)
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--backend',choices=('unsloth','vllm'),required=True);p.add_argument('--variant',choices=('base','step75'),required=True)
+    p=argparse.ArgumentParser();p.add_argument('--backend',choices=BACKENDS,required=True);p.add_argument('--variant',choices=('base','step75'),required=True)
     p.add_argument('--input',required=True);p.add_argument('--output',required=True);a=p.parse_args()
     records=read_jsonl(Path(a.input)/'records.jsonl');catalog=json.loads((Path(a.input)/'catalog.json').read_text())
     output=Path(a.output);output.mkdir(parents=True,exist_ok=True)
     with (output/f'{a.backend}_{a.variant}.jsonl').open('w') as stream:
-        (hf if a.backend=='unsloth' else vllm_probe)(a,records,catalog,stream)
+        (hf if a.backend=='unsloth' else vllm_probe if a.backend=='vllm' else plain_hf)(a,records,catalog,stream)
 if __name__=='__main__':main()

@@ -3,7 +3,7 @@ from pathlib import Path
 H=Path(__file__).resolve().parent;sys.path.insert(0,str(H/'runtime'))
 import umilife
 umilife.__path__.append(str(H.parents[1]/'umilife'))
-from umilife.eval_probe import trim_generated,repetition,groups,fingerprint
+from umilife.eval_probe import trim_generated,repetition,groups,fingerprint,BACKENDS,HF_GENERATION
 from umilife.probe_summary import summarize_probe
 class Checks(unittest.TestCase):
  def test_stops_and_loops(self):
@@ -22,12 +22,12 @@ class Checks(unittest.TestCase):
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp);source=root/'input';source.mkdir();samples=[{'id':f'x{i}','step':0} for i in range(6)]
    (source/'probe_manifest.json').write_text(json.dumps({'samples':samples}))
-   for b in ('unsloth','vllm'):
+   for b in BACKENDS:
     for v in ('base','step75'):
      rows=[{**s,'backend':b,'variant':v,'batch_size':n,'batch_index':i//n,'batch_seconds':2.,'input_ids_sha256':s['id'],
       'generated_tokens':10,'finish_reason':'eos','max_repeated_6gram':0,'raw':'{}','schema_valid':True,'correct':True} for n in (1,4) for i,s in enumerate(samples)]
      (root/f'{b}_{v}.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
-   result=summarize_probe(root,source);self.assertEqual(len(result['cases']),8)
+   result=summarize_probe(root,source);self.assertEqual(len(result['cases']),16)
    self.assertEqual(result['cases']['unsloth/base/batch4']['generation_seconds'],4.)
    self.assertTrue(all(r['prompt_token_ids_identical'] for r in result['paired']))
    path=root/'vllm_step75.jsonl';rows=[json.loads(s) for s in path.read_text().splitlines()];rows[0]['input_ids_sha256']='wrong';path.write_text(''.join(json.dumps(r)+'\n' for r in rows))
@@ -39,5 +39,5 @@ class Checks(unittest.TestCase):
   payload=ast.literal_eval(ast.parse(nb['cells'][2]['source']).body[0].value)
   self.assertEqual(payload,{str(p.relative_to(H/'runtime')):p.read_text() for p in (H/'runtime').rglob('*') if p.is_file() and '__pycache__' not in str(p)})
   self.assertEqual(payload['umilife/prompt_policy.py'],(H.parent/'planner_caller_evidence/runtime/umilife/prompt_policy.py').read_text())
-  selection=json.loads((H/'selection.json').read_text());self.assertEqual(selection['adapter_step'],75);self.assertFalse(selection['exact_step100_reproduction'])
+  selection=json.loads((H/'selection.json').read_text());self.assertEqual(HF_GENERATION['eos_token_id'],[151645,151643]);self.assertFalse(HF_GENERATION['do_sample']);self.assertEqual(selection['adapter_step'],75);self.assertFalse(selection['exact_step100_reproduction'])
 if __name__=='__main__':unittest.main()
