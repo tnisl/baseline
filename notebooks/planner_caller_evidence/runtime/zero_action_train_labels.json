@@ -1,0 +1,406 @@
+{
+  "author": "Codex",
+  "scope": "Training-only manually reviewed no-action terminal targets; never loaded for validation target construction or model messages.",
+  "labels": {
+    "train_0036": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0038": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0155": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0432": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0446": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0460": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0532": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0606": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0655": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0685": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0686": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0740": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0825": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0859": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0920": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0926": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0929": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0993": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0997": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1067": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1114": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1135": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1167": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1185": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1192": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1280": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1286": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_1706": {
+      "thought": "The latest request cancels or explicitly withholds the operation. Leave existing state unchanged and end this turn.",
+      "next": "summarizer"
+    },
+    "train_0057": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0431": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0445": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0459": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0531": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0565": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0602": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0738": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0797": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0824": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0858": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0861": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_1452": {
+      "thought": "The user is acknowledging, chatting or describing a completed activity rather than requesting a new tool operation. End without changing state.",
+      "next": "summarizer"
+    },
+    "train_0082": {
+      "thought": "The prior forecast says no rain tomorrow. The condition for moving the run and sending the notification is false; do neither.",
+      "next": "summarizer"
+    },
+    "train_0137": {
+      "thought": "The prior forecast for tomorrow reports no rain. Leave the event unchanged and do not send the conditional SMS.",
+      "next": "summarizer"
+    },
+    "train_0266": {
+      "thought": "The existing forecast for tomorrow reports rain=false. The requested reschedule and SMS are conditional on rain, so end without changes.",
+      "next": "summarizer"
+    },
+    "train_0125": {
+      "thought": "The observed SJC buying price is 130,800,000 VND, not below 129,000,000. Do not create the conditional reminder.",
+      "next": "summarizer"
+    },
+    "train_0232": {
+      "thought": "The observed SJC buying price is 124,900,000 VND, not below 123,000,000. Do not create the conditional reminder.",
+      "next": "summarizer"
+    },
+    "train_0394": {
+      "thought": "The observed SJC buying price is 119,000,000 VND, not below 118,000,000. Leave reminders unchanged.",
+      "next": "summarizer"
+    },
+    "train_0327": {
+      "thought": "The previous gold-price result already contains the requested SJC buying price,128,900,000 VND. Answer from that history without another lookup.",
+      "next": "summarizer"
+    },
+    "train_1358": {
+      "thought": "The history confirms the electricity transfer to Trang was already completed. Reuse that confirmation and do not transfer again.",
+      "next": "summarizer"
+    },
+    "train_1360": {
+      "thought": "The observed reward requires 6,000 points but the account has only 3,000. The condition for redemption is false; do not redeem a different reward.",
+      "next": "summarizer"
+    },
+    "train_1367": {
+      "thought": "The most recent wallet balance is 150,000 VND, below the requested 200,000 threshold. Do not perform another top-up.",
+      "next": "summarizer"
+    },
+    "train_1446": {
+      "thought": "The history confirms the requested lesson is already scheduled. The request is conditional on it not being scheduled; do not create a duplicate.",
+      "next": "summarizer"
+    },
+    "train_1453": {
+      "thought": "The user says the film was already added and explicitly asks not to add it again. End without another write.",
+      "next": "summarizer"
+    },
+    "train_1494": {
+      "thought": "The prior weather result reports no rain, so the pickup condition in the message is false. No school-message lookup is needed for this conditional request.",
+      "next": "summarizer"
+    },
+    "train_1593": {
+      "thought": "Sending 20,000,000 from the observed 35,200,000 balance leaves 15,200,000, below the 16,500,000 tuition commitment. Do not open the conditional deposit.",
+      "next": "summarizer"
+    },
+    "train_0019": {
+      "thought": "The installed tools do not support hotel reservations. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0043": {
+      "thought": "The installed tools do not support ride booking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0248": {
+      "thought": "The installed tools do not support ride booking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0428": {
+      "thought": "The installed tools do not support train-ticket booking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0434": {
+      "thought": "The installed tools do not support retrieving the entire requested book text. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0447": {
+      "thought": "The installed tools do not support guessing another person’s banking password. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0458": {
+      "thought": "The installed tools do not support wallet transfers. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0496": {
+      "thought": "The installed tools do not support music album playback. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0499": {
+      "thought": "The installed tools do not support covert location tracking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0530": {
+      "thought": "The installed tools do not support money transfers. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0562": {
+      "thought": "The installed tools do not support music album playback. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0600": {
+      "thought": "The installed tools do not support money transfers. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0601": {
+      "thought": "The installed tools do not support medical appointment booking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0687": {
+      "thought": "The installed tools do not support booking the requested licensing appointment. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0735": {
+      "thought": "The installed tools do not support weather lookup. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0736": {
+      "thought": "The installed tools do not support course enrollment. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0788": {
+      "thought": "The installed tools do not support hotel-room reservations. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0798": {
+      "thought": "The installed tools do not support international money transfers. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0856": {
+      "thought": "The installed tools do not support flight booking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0863": {
+      "thought": "The installed tools do not support camera access and face identification. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0938": {
+      "thought": "The installed tools do not support joining an online meeting. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0956": {
+      "thought": "The installed tools do not support vehicle-fine lookup. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0982": {
+      "thought": "The installed tools do not support arming a security alarm. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0990": {
+      "thought": "The installed tools do not support reading SMS messages. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1004": {
+      "thought": "The installed tools do not support music playback control. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1032": {
+      "thought": "The installed tools do not support sports-results lookup. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1116": {
+      "thought": "The installed tools do not support assigning household chores. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1143": {
+      "thought": "The installed tools do not support loyalty-points lookup. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1156": {
+      "thought": "The installed tools do not support taxi booking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1161": {
+      "thought": "The installed tools do not support email replies. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1172": {
+      "thought": "The installed tools do not support flight check-in. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1242": {
+      "thought": "The installed tools do not support reminder cancellation and creation. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1299": {
+      "thought": "The installed tools do not support file sharing. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1316": {
+      "thought": "The installed tools do not support currency conversion. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1386": {
+      "thought": "The installed tools do not support medical appointment booking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1436": {
+      "thought": "The installed tools do not support adding to a video watchlist. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1513": {
+      "thought": "The installed tools do not support grocery ordering. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1518": {
+      "thought": "The installed tools do not support file sharing with view-only permissions. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1538": {
+      "thought": "The installed tools do not support the requested messaging or phone call. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1555": {
+      "thought": "The installed tools do not support starting a dishwasher cycle. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1582": {
+      "thought": "The installed tools do not support opening and reading the invoice. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1587": {
+      "thought": "The installed tools do not support driving-route lookup. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1588": {
+      "thought": "The installed tools do not support pantry-consumption tracking. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_1655": {
+      "thought": "The installed tools do not support library reservations. Stop without substituting an unrelated operation or inventing a result.",
+      "next": "give_up"
+    },
+    "train_0688": {
+      "thought": "A negative brightness percentage is outside the supported tool range. Do not silently replace it with a different brightness.",
+      "next": "give_up"
+    }
+  }
+}

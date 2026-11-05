@@ -4,17 +4,20 @@ Repo giữ các notebook train, validation và chẩn đoán đang dùng. Prompt
 
 | Mục đích | Mã nguồn | Kaggle |
 |---|---|---|
-| Finetune Planner + Caller | [planner_caller_compiled](notebooks/planner_caller_compiled/README.md) | [Training](https://www.kaggle.com/code/anartt/lifemate-planner-caller-compiled) |
+| Finetune Planner + Caller v3 | [planner_caller_evidence](notebooks/planner_caller_evidence/README.md) | [Training v3](https://www.kaggle.com/code/lctrnnguynkhi/lifemate-planner-caller-evidence) |
+| Bản train v2 để đối chiếu | [planner_caller_compiled](notebooks/planner_caller_compiled/README.md) | [Training v2](https://www.kaggle.com/code/anartt/lifemate-planner-caller-compiled) |
 | Validation đầy đủ, 245 mẫu | [concise_validation_fast](notebooks/concise_validation_fast/README.md) | [Validation](https://www.kaggle.com/code/anartt/lifemate-concise-validation-fast) |
 | Kiểm tra 4 mẫu từng lỗi | [unguided_failure_subset](notebooks/unguided_failure_subset/README.md) | [Diagnostic](https://www.kaggle.com/code/anartt/lifemate-unguided-failure-subset) |
 | So sánh base với adapter | [base_adapter_comparison](notebooks/base_adapter_comparison/README.md) | [Comparison](https://www.kaggle.com/code/anartt/lifemate-base-adapter-comparison) |
 
 Notebook được tạo bằng `make_notebook.py` trong từng thư mục và nhúng runtime đi kèm. Core được chốt ở commit cũ để tái lập; runtime nhúng là phần ghi đè có hiệu lực. Sửa `runtime/` rồi build lại notebook, không chỉ sửa payload trong `.ipynb`.
 
+Notebook v3 dùng prompt/nhãn mới, không resume từ adapter v2. Xem [hướng dẫn v3](notebooks/planner_caller_evidence/README.md) về quarantine dữ liệu, CE và lựa chọn checkpoint theo đánh giá sinh.
+
 ## Cấu hình hiện tại
 
 - Backbone: `Qwen/Qwen3-4B-Instruct-2507`, revision `cdbee75f17c01a7cc42f958dc650907174af0554`.
-- Train: Unsloth QLoRA rank16/alpha32, FP16 trên 2 T4; micro-batch train/eval4 mỗi GPU, batch hiệu dụng8. Compile bật, cosine LR/warmup, early-stopping patience3, checkpoint mỗi25 updates. Mặc định train local Planner và Caller; Global vẫn là tùy chọn.
+- Train: Unsloth QLoRA rank16/alpha32, FP16 trên 2 T4; micro-batch train/eval4 mỗi GPU, batch hiệu dụng8. Compile bật, cosine LR/warmup, early-stopping patience3, checkpoint mỗi25 updates. Notebook v3 chỉ train local Planner và Caller; tùy chọn Global còn ở notebook v2.
 - Split: 1300 train /245 valid, giữ nguyên ID trong các runtime; không dùng nhãn valid làm đầu vào model.
 - Inference: vLLM, batch4 mỗi GPU; ASR Zipformer được cung cấp chạy cho audio hiện tại và history. Không train ASR.
 - **Không dùng token-level enforcer ở Planner/Caller**, kể cả backend Transformers dự phòng. Giữ JSON/schema validation sau sinh, kiểm tra tool arguments và tối đa một lượt sửa mỗi node trong mỗi quyết định.
@@ -26,7 +29,8 @@ Các lock vLLM vẫn chứa `lm-format-enforcer` vì đó là dependency gián t
 
 ```text
 notebooks/
-  planner_caller_compiled/    # Train + checkpoint/resume
+  planner_caller_evidence/    # Train v3: evidence + node metrics + throughput
+  planner_caller_compiled/    # Train v2 để đối chiếu
   concise_validation_fast/   # Full valid, hai worker GPU
   unguided_failure_subset/   # Chẩn đoán bốn mẫu
   base_adapter_comparison/   # Cùng đầu vào, base vs adapter

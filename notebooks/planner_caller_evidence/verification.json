@@ -1,0 +1,62 @@
+{
+  "cpu_tests": 7,
+  "cpu_two_rank_resume": "pass",
+  "causal_loss_and_gradients": "equivalent_with_and_without_projection_checkpoint",
+  "full_local_data_preparation": "pass",
+  "train_split_ids": 1300,
+  "validation_split_ids": 245,
+  "quarantined_train_ids": [
+    "train_1696"
+  ],
+  "unscored_validation_no_action": 11,
+  "counts": {
+    "planner.validation": 807,
+    "kind.reference.validation": 1146,
+    "caller.validation": 573,
+    "kind.terminal.validation": 234,
+    "planner.train": 5076,
+    "kind.reference.train": 5930,
+    "caller.train": 3526,
+    "kind.terminal.train": 1199,
+    "kind.premature_end_recovery.train": 413,
+    "kind.argument_repair.train": 561,
+    "kind.read_recovery.train": 399,
+    "kind.reviewed_no_action.train": 100
+  },
+  "tokenization": {
+    "planner.train": {
+      "loaded": 5076,
+      "used": 5076,
+      "overlength": 0,
+      "max_tokens": 6352,
+      "max_target_tokens": 158
+    },
+    "planner.validation": {
+      "loaded": 807,
+      "used": 807,
+      "overlength": 0,
+      "max_tokens": 5701,
+      "max_target_tokens": 146
+    },
+    "caller.train": {
+      "loaded": 3526,
+      "used": 3526,
+      "overlength": 0,
+      "max_tokens": 5601,
+      "max_target_tokens": 91
+    },
+    "caller.validation": {
+      "loaded": 573,
+      "used": 573,
+      "overlength": 0,
+      "max_tokens": 4977,
+      "max_target_tokens": 92
+    }
+  },
+  "planned_steps": {
+    "planner": 635,
+    "caller": 441
+  },
+  "gpu_run": false,
+  "throughput_benchmark": false
+}

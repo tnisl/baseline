@@ -1,0 +1,12 @@
+{
+  "seed": "english-split-20261104",
+  "train": 1300,
+  "validation": 245,
+  "original_valid_retained": 100,
+  "additional_valid": 145,
+  "strata": "first-tool app, capped call count, conditional keyword; proportional largest remainder",
+  "split_sha256": "ce713fbd99bf0bad81420935477f545af1b97fa96e5b606c6ea9377e465b7427",
+  "note": "ID-disjoint split. Semantic paraphrase groups have not been manually audited; old 100 are a development set.",
+  "requires_new_training": true,
+  "training_mode": "Independent local Planner/Caller from base"
+}
