@@ -1,4 +1,6 @@
 """Pinned vLLM0.9.2 T4 LoRA kernel compatibility, shared with validated inference."""
+import os
+from pathlib import Path
 def prepare_t4_lora_kernel():
     """Work around Triton 3.3 fp16 conversion failure on SM75; preserve FP32 accumulation."""
     import torch,importlib.util,importlib.metadata,hashlib

@@ -11,7 +11,7 @@ from umilife.completion_loss import completion_loss
 from umilife.ddp_engine import weighted_eval
 from umilife.train import Collator
 from umilife.prompt_policy import build_messages
-from umilife.node_eval import assess,summarize,export_adapter
+from umilife.node_eval import assess,summarize,export_adapter,OUTPUT_TOKEN_LIMITS
 from umilife.training_eval import generation_context,make_evaluator
 class Checks(unittest.TestCase):
  def test_predicates_and_no_future_result(self):
@@ -79,12 +79,13 @@ class Checks(unittest.TestCase):
     return [1]*len(messages[0]['content'])
    def batch_decode(self,tokens,**kwargs):return ['{"name":"demo.write","arguments":{"value":"requested"}}']*len(tokens)
   class Model(torch.nn.Module):
-   def __init__(self):super().__init__();self.weight=torch.nn.Parameter(torch.ones(1));self.config=SimpleNamespace(use_cache=False);self.restored=False
+   def __init__(self):super().__init__();self.weight=torch.nn.Parameter(torch.ones(1));self.config=SimpleNamespace(use_cache=False);self.generation_config=SimpleNamespace(eos_token_id=[1]);self.restored=False
    def gradient_checkpointing_enable(self,**kwargs):self.restored=True
    def generate(self,input_ids,attention_mask,**kwargs):
     assert os.environ['UNSLOTH_RETURN_HIDDEN_STATES']=='0' and os.environ['UNSLOTH_RETURN_LOGITS']=='1'
     assert not self.training and not torch.is_grad_enabled() and self.config.use_cache
     assert kwargs['synced_gpus'] is False and kwargs['logits_to_keep']==1 and not kwargs['do_sample']
+    assert kwargs['max_new_tokens']==192
     assert torch.equal(attention_mask.sum(1),torch.tensor([2,3]))
     assert torch.equal(input_ids[0],torch.tensor([0,1,1]))
     torch.rand(3);return torch.cat([input_ids,torch.ones((len(input_ids),1),dtype=torch.long)],1)
@@ -97,6 +98,8 @@ class Checks(unittest.TestCase):
    evaluator=make_evaluator('caller','unused','unused',tokenizer,torch.device('cpu'),tmp,lambda m:m.eval(),lambda m:m.train())
    result=evaluator(model,100)
    self.assertEqual(result['metrics']['argument_f1'],1.);self.assertEqual(result['metrics']['samples'],2)
+   self.assertEqual(OUTPUT_TOKEN_LIMITS,{'planner':256,'caller':192});self.assertEqual(result['max_new_tokens'],192)
+   self.assertEqual(result['metrics']['length_limited_count'],0)
    self.assertTrue(torch.equal(before,torch.get_rng_state()));self.assertTrue(model.training and model.restored)
    self.assertFalse(model.config.use_cache);self.assertEqual(tokenizer.padding_side,'right')
    self.assertEqual(os.environ['UNSLOTH_RETURN_HIDDEN_STATES'],'1');self.assertEqual(os.environ['UNSLOTH_RETURN_LOGITS'],'0')

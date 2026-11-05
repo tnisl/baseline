@@ -6,6 +6,7 @@ from jsonschema import Draft202012Validator,ValidationError
 from umilife.core import read_jsonl,write_json,parse_json,load_catalog,digest as file_digest
 from umilife.prompt_policy import request_schema,digest
 from umilife.evaluate import matches
+OUTPUT_TOKEN_LIMITS={'planner':256,'caller':192}
 
 def assess(role,record,raw,catalog):
     target=parse_json(record['target']);messages=json.loads(record['messages'][1]['content'])
@@ -36,6 +37,7 @@ def assess(role,record,raw,catalog):
 def summarize(rows,role):
     n=len(rows);assert n
     report={'samples':n,'match_accuracy':sum(r['correct'] for r in rows)/n,'schema_valid_rate':sum(r['schema_valid'] for r in rows)/n}
+    report['length_limited_count']=sum(r.get('finish_reason')=='length' for r in rows)
     if role=='planner':
         report['route_accuracy']=sum(r['route_match'] for r in rows)/n
         calls=[r for r in rows if not r['terminal']]
@@ -66,7 +68,8 @@ def worker(a):
         gpu_memory_utilization=.85,enforce_eager=not options['cuda_graphs'],enable_prefix_caching=options['prefix_caching'],
         enable_chunked_prefill=False,seed=42,generation_config='vllm',disable_log_stats=True)
     tokenizer=engine.get_tokenizer();records=read_jsonl(Path(a.prepared)/f'{a.stage}.validation.jsonl')[a.rank::2]
-    catalog=load_catalog(a.data_root,'train');sampling=SamplingParams(temperature=0,seed=42,max_tokens=512,guided_decoding=None)
+    limit=OUTPUT_TOKEN_LIMITS[a.stage]
+    catalog=load_catalog(a.data_root,'train');sampling=SamplingParams(temperature=0,seed=42,max_tokens=limit,guided_decoding=None)
     candidates={name:LoRARequest(name,i+1,path) for i,(name,path) in enumerate(config['candidates'].items())}
     target=work/f'gpu{a.rank}.jsonl'
     with target.open('w') as out:
@@ -74,7 +77,7 @@ def worker(a):
             group=records[start:start+4]
             prompts=[tokenizer.apply_chat_template(r['messages'],tokenize=False,add_generation_prompt=True) for r in group]
             token_ids=[tokenizer.encode(p,add_special_tokens=False) for p in prompts]
-            assert all(len(ids)+512<=8192 for ids in token_ids),'Context exceeded; no evidence truncation'
+            assert all(len(ids)+limit<=8192 for ids in token_ids),'Context exceeded; no evidence truncation'
             order=list(candidates)
             if start//4%2:order.reverse()
             for name in order:
@@ -122,7 +125,7 @@ def main():
     assert lineage['dataset_manifest_sha256']==file_digest(Path(a.prepared)/'manifest.json')
     candidates={'ce_best':str(adapter),'last':str(latest)}
     if file_digest(adapter/'adapter_model.safetensors')==file_digest(latest/'adapter_model.safetensors'):candidates.pop('last')
-    config={'stage':a.stage,'model':a.model,'revision':a.revision,'tokenizer':str(adapter),'candidates':candidates,
+    config={'stage':a.stage,'max_new_tokens':OUTPUT_TOKEN_LIMITS[a.stage],'model':a.model,'revision':a.revision,'tokenizer':str(adapter),'candidates':candidates,
         'weights_sha256':{k:file_digest(Path(v)/'adapter_model.safetensors') for k,v in candidates.items()},
         'manifest_sha256':file_digest(Path(a.prepared)/'manifest.json'),'prompt_sha256':json.loads((Path(a.prepared)/'manifest.json').read_text())['prompts_sha256']}
     if (work/'report.json').exists():
@@ -171,6 +174,7 @@ def main():
     metrics={name:summarize([r for r in rows if r['candidate']==name],a.stage) for name in candidates}
     winner=max(metrics,key=lambda k:(metrics[k]['match_accuracy'],metrics[k]['schema_valid_rate'],k=='ce_best'))
     report={'stage':a.stage,'metrics':metrics,'recommended_checkpoint':winner,'recommended_path':candidates[winner],
+            'max_new_tokens':OUTPUT_TOKEN_LIMITS[a.stage],
             'guided_decoding':False,'batch_per_gpu':4,'gpu_workers':2,
             'note':'Reference-prefix node agreement, not full workflow/contest score. CE-best and last only; no claim of globally best checkpoint.'}
     export=work.parent.parent/'selected_adapters'/a.stage

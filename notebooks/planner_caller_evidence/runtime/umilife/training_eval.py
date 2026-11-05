@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from umilife.core import read_jsonl,load_catalog,write_json
-from umilife.node_eval import assess,summarize
+from umilife.node_eval import assess,summarize,OUTPUT_TOKEN_LIMITS
 
 
 def generation_context(model,tokenizer,device,for_inference,for_training):
@@ -37,13 +37,14 @@ def generation_context(model,tokenizer,device,for_inference,for_training):
 
 def make_evaluator(role,prepared,data_root,tokenizer,device,output,for_inference,for_training,batch_size=4):
     rank=dist.get_rank();world=dist.get_world_size()
+    limit=OUTPUT_TOKEN_LIMITS[role]
     records=read_jsonl(Path(prepared)/f'{role}.validation.jsonl')
     catalog=load_catalog(data_root,'train')
     # Encode messages only: the reference answer never enters generation.
     local=[(r,tokenizer.apply_chat_template(r['messages'],tokenize=True,add_generation_prompt=True))
            for r in records[rank::world]]
     local.sort(key=lambda pair:len(pair[1]))
-    assert all(len(ids)+512<=8192 for _,ids in local),'Context exceeded; no evidence truncation'
+    assert all(len(ids)+limit<=8192 for _,ids in local),'Context exceeded; no evidence truncation'
     def evaluate(model,step):
         rows=[];folder=Path(output)/f'step-{step:08d}';folder.mkdir(parents=True,exist_ok=True)
         started=time.monotonic()
@@ -53,12 +54,16 @@ def make_evaluator(role,prepared,data_root,tokenizer,device,output,for_inference
                     group=local[start:start+batch_size];width=max(len(ids) for _,ids in group)
                     batch={'input_ids':torch.tensor([[tokenizer.pad_token_id]*(width-len(ids))+ids for _,ids in group],device=device),
                            'attention_mask':torch.tensor([[0]*(width-len(ids))+[1]*len(ids) for _,ids in group],device=device)}
-                    generated=model.generate(**batch,max_new_tokens=512,do_sample=False,num_beams=1,
+                    generated=model.generate(**batch,max_new_tokens=limit,do_sample=False,num_beams=1,
                         use_cache=True,logits_to_keep=1,pad_token_id=tokenizer.pad_token_id,
                         synced_gpus=False,return_dict_in_generate=False)
                     texts=tokenizer.batch_decode(generated[:,width:].cpu(),skip_special_tokens=True)
-                    for (record,_),raw in zip(group,texts,strict=True):
-                        row={'id':record['id'],'step':record['step'],'raw':raw,**assess(role,record,raw,catalog)}
+                    eos=model.generation_config.eos_token_id
+                    stops=set(eos if isinstance(eos,list) else [eos])
+                    for (record,_),raw,tokens in zip(group,texts,generated[:,width:].cpu().tolist(),strict=True):
+                        end=next((i+1 for i,t in enumerate(tokens) if t in stops),None)
+                        row={'id':record['id'],'step':record['step'],'raw':raw,'generated_tokens':end if end is not None else len(tokens),
+                             'finish_reason':'eos' if end is not None else 'length',**assess(role,record,raw,catalog)}
                         rows.append(row);stream.write(json.dumps(row,ensure_ascii=False)+'\n')
                     stream.flush()
                     if start==0 or (start//batch_size+1)%10==0 or start+batch_size>=len(local):
@@ -67,7 +72,7 @@ def make_evaluator(role,prepared,data_root,tokenizer,device,output,for_inference
         gathered=[None]*world;dist.all_gather_object(gathered,rows)
         all_rows=[r for shard in gathered for r in shard]
         assert len(all_rows)==len(records)
-        report={'role':role,'backend':'resident_unsloth_transformers','greedy':True,'max_new_tokens':512,
+        report={'role':role,'backend':'resident_unsloth_transformers','greedy':True,'max_new_tokens':limit,
                 'batch_per_gpu':batch_size,'metrics':summarize(all_rows,role),
                 'note':'Reference-prefix node agreement, not full workflow score; backend differs from post-stage vLLM.'}
         if rank==0:

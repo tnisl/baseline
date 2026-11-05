@@ -59,5 +59,9 @@
   },
   "gpu_run": false,
   "throughput_benchmark": false,
-  "periodic_generation_metrics_cpu": "pass: prompt-only generation, left padding, scoring, RNG/flags/checkpointing restoration including failure"
+  "periodic_generation_metrics_cpu": "pass: caller cap192, shared planner cap256, stop/length metrics, state restoration",
+  "output_token_limits": {
+    "planner": 256,
+    "caller": 192
+  }
 }
