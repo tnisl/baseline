@@ -10,12 +10,11 @@ def worker(folder):
  import torch.distributed as dist
  from types import SimpleNamespace
  from umilife.ddp_engine import fit
- from umilife.training_eval import generation_context
  from umilife.train import Collator
  torch.set_num_threads(1);torch.manual_seed(42);dist.init_process_group('gloo')
  class Model(torch.nn.Module):
   def __init__(self):super().__init__();self.weight=torch.nn.Parameter(torch.tensor([.25]));self.config=SimpleNamespace(use_cache=False)
-  def gradient_checkpointing_enable(self,**kwargs):pass
+  def generate(self,*args,**kwargs):raise AssertionError('Generation must not run during fit')
   def forward(self,input_ids,labels,**kwargs):
    mask=labels!=-100;return SimpleNamespace(loss=((self.weight*input_ids.float()-labels.float())[mask]**2).mean())
  class Data:
@@ -25,13 +24,8 @@ def worker(folder):
  model=Model()
  def save(m,p):torch.save(m.state_dict(),Path(p)/'weights.pt')
  def load(m,p):m.load_state_dict(torch.load(Path(p)/'weights.pt',weights_only=True))
- def evaluate(m,step):
-  with generation_context(m,SimpleNamespace(padding_side='right'),torch.device('cpu'),lambda m:m.eval(),lambda m:m.train()):
-   torch.rand(3)
-   gathered=[None]*dist.get_world_size();dist.all_gather_object(gathered,dist.get_rank())
-  return {'metrics':{'samples':len(gathered),'match_accuracy':1.},'train_step':step}
  try:
-  result=fit(model,Data(32),Data(9),Collator(0),torch.device('cpu'),Path(folder),1,.05,save,load,eval_steps=2,train_batch_size=2,eval_batch_size=2,patience=10,evaluation_callback=evaluate)
+  result=fit(model,Data(32),Data(9),Collator(0),torch.device('cpu'),Path(folder),1,.05,save,load,eval_steps=2,train_batch_size=2,eval_batch_size=2,patience=10)
   if dist.get_rank()==0:(Path(folder)/'result.json').write_text(json.dumps(result))
  finally:dist.destroy_process_group()
 
@@ -51,9 +45,8 @@ if __name__=='__main__':
   assert a['global_step']==b['global_step']==8
   assert a['final_trainable_sha256']==b['final_trainable_sha256']
   assert [(x['step'],x['eval_loss']) for x in a['history']]==[(x['step'],x['eval_loss']) for x in b['history']]
-  assert [x['node_eval'] for x in a['history']]==[x['node_eval'] for x in b['history']]
-  assert [x['node_eval']['train_step'] for x in a['history']]==[2,4,6,8]
+  assert all(x['evaluation_kind']=='teacher_forced_ce' and 'node_eval' not in x for x in a['history'])
   history=json.loads((root/'resumed/eval_history.json').read_text())
-  assert [x['node_eval'] for x in history]==[x['node_eval'] for x in b['history']]
+  assert [(x['step'],x['eval_loss']) for x in history]==[(x['step'],x['eval_loss']) for x in b['history']]
   assert a['before']['eval_loss'] is None and b['before']['eval_loss'] is None
-  print('PASS: CPU2-rank DDP, checkpoint at step2, optimizer/scheduler/RNG/cursor resume, final hash/CE and periodic generation metrics match, no duplicate initial/final CE')
+  print('PASS: CPU2-rank DDP, checkpoint at step2, optimizer/scheduler/RNG/cursor resume, final hash/CE match, teacher-forced CE only, no duplicate initial/final CE')

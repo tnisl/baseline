@@ -12,7 +12,6 @@ from umilife.ddp_engine import weighted_eval
 from umilife.train import Collator
 from umilife.prompt_policy import build_messages
 from umilife.node_eval import assess,summarize,export_adapter,OUTPUT_TOKEN_LIMITS
-from umilife.training_eval import generation_context,make_evaluator
 class Checks(unittest.TestCase):
  def test_predicates_and_no_future_result(self):
   row={'audio_text':'Hoá đơn tới hạn trong 4 ngày, riêng cái nào quá 400 nghìn thì để đó.','context':{'current_time':'2026-10-01T10:00:00+07:00'},'history':[]}
@@ -70,43 +69,16 @@ class Checks(unittest.TestCase):
   self.assertFalse(assess('planner',record,'{"thought":"x","next":"caller","tool":"other.write"}',{**specs,'other.write':specs['demo.write']})['schema_valid'])
   evaluated={**assess('planner',record,json.dumps(plan),specs),'step':0}
   self.assertEqual(summarize([evaluated],'planner')['tool_accuracy'],1.)
- def test_training_generation_and_state_restore(self):
-  from types import SimpleNamespace
-  class Tokenizer:
-   pad_token_id=0;padding_side='right'
-   def apply_chat_template(self,messages,**kwargs):
-    assert all(m['role']!='assistant' for m in messages)
-    return [1]*len(messages[0]['content'])
-   def batch_decode(self,tokens,**kwargs):return ['{"name":"demo.write","arguments":{"value":"requested"}}']*len(tokens)
-  class Model(torch.nn.Module):
-   def __init__(self):super().__init__();self.weight=torch.nn.Parameter(torch.ones(1));self.config=SimpleNamespace(use_cache=False);self.generation_config=SimpleNamespace(eos_token_id=[1]);self.restored=False
-   def gradient_checkpointing_enable(self,**kwargs):self.restored=True
-   def generate(self,input_ids,attention_mask,**kwargs):
-    assert os.environ['UNSLOTH_RETURN_HIDDEN_STATES']=='0' and os.environ['UNSLOTH_RETURN_LOGITS']=='1'
-    assert not self.training and not torch.is_grad_enabled() and self.config.use_cache
-    assert kwargs['synced_gpus'] is False and kwargs['logits_to_keep']==1 and not kwargs['do_sample']
-    assert kwargs['max_new_tokens']==192
-    assert torch.equal(attention_mask.sum(1),torch.tensor([2,3]))
-    assert torch.equal(input_ids[0],torch.tensor([0,1,1]))
-    torch.rand(3);return torch.cat([input_ids,torch.ones((len(input_ids),1),dtype=torch.long)],1)
-  model=Model();tokenizer=Tokenizer();specs={'demo.write':{'parameters':{'type':'object','properties':{'value':{'type':'string'}},'required':['value']}}}
-  records=[{'id':f'valid_{i}','step':0,'messages':[{'role':'system','content':'x'*n},{'role':'user','content':'{}'}],
-            'target':'{"name":"demo.write","arguments":{"value":"requested"}}'} for i,n in enumerate((3,2))]
-  def gather(out,rows):out[0]=rows
-  with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'UNSLOTH_RETURN_HIDDEN_STATES':'1','UNSLOTH_RETURN_LOGITS':'0'}),patch('umilife.training_eval.read_jsonl',return_value=records),patch('umilife.training_eval.load_catalog',return_value=specs),patch('umilife.training_eval.dist.get_rank',return_value=0),patch('umilife.training_eval.dist.get_world_size',return_value=1),patch('umilife.training_eval.dist.all_gather_object',side_effect=gather):
-   before=torch.get_rng_state().clone()
-   evaluator=make_evaluator('caller','unused','unused',tokenizer,torch.device('cpu'),tmp,lambda m:m.eval(),lambda m:m.train())
-   result=evaluator(model,100)
-   self.assertEqual(result['metrics']['argument_f1'],1.);self.assertEqual(result['metrics']['samples'],2)
-   self.assertEqual(OUTPUT_TOKEN_LIMITS,{'planner':256,'caller':192});self.assertEqual(result['max_new_tokens'],192)
-   self.assertEqual(result['metrics']['length_limited_count'],0)
-   self.assertTrue(torch.equal(before,torch.get_rng_state()));self.assertTrue(model.training and model.restored)
-   self.assertFalse(model.config.use_cache);self.assertEqual(tokenizer.padding_side,'right')
-   self.assertEqual(os.environ['UNSLOTH_RETURN_HIDDEN_STATES'],'1');self.assertEqual(os.environ['UNSLOTH_RETURN_LOGITS'],'0')
-   self.assertTrue((Path(tmp)/'step-00000100/report.json').exists())
-   with self.assertRaisesRegex(RuntimeError,'injected'):
-    with generation_context(model,tokenizer,torch.device('cpu'),lambda m:m.eval(),lambda m:m.train()):raise RuntimeError('injected')
-   self.assertTrue(model.training);self.assertFalse(model.config.use_cache);self.assertEqual(os.environ['UNSLOTH_RETURN_HIDDEN_STATES'],'1')
+ def test_ce_only_training_and_post_stage_generation(self):
+  for name in ('train_2gpu.py','ddp_engine.py'):
+   source=(H/'runtime/umilife'/name).read_text();tree=ast.parse(source)
+   self.assertFalse(any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='generate' for n in ast.walk(tree)))
+   self.assertNotIn('evaluation_callback',source);self.assertNotIn('make_evaluator',source)
+  self.assertEqual(OUTPUT_TOKEN_LIMITS,{'planner':256,'caller':192})
+  nb=json.loads((H/'kaggle_planner_caller_evidence.ipynb').read_text())
+  execution=nb['cells'][-1]['source']
+  self.assertLess(execution.index("execute('umilife.train_2gpu'"),execution.index("'umilife.node_eval'"))
+  self.assertIn('RUN_NODE_EVAL=True',nb['cells'][1]['source'])
  def test_selected_export_keeps_training_artifact(self):
   from safetensors.torch import save_file,load_file
   with tempfile.TemporaryDirectory() as tmp:

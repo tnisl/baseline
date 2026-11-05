@@ -15,7 +15,7 @@ Repo giữ các notebook train, validation và chẩn đoán đang dùng. Prompt
 Notebook được tạo bằng `make_notebook.py` trong từng thư mục và nhúng runtime đi kèm. Core được chốt ở commit cũ để tái lập; runtime nhúng là phần ghi đè có hiệu lực. Sửa `runtime/` rồi build lại notebook, không chỉ sửa payload trong `.ipynb`.
 
 Notebook v3 dùng prompt/nhãn mới, không resume từ adapter v2. Xem [hướng dẫn v3](notebooks/planner_caller_evidence/README.md) về quarantine dữ liệu, CE và lựa chọn checkpoint theo đánh giá sinh.
-Ở mỗi mốc eval100 bước và cuối train, v3 in/lưu cả CE và chỉ số sinh trên valid của node đang train: Planner route/tool accuracy; Caller action match, argument F1 và từng trường. Đánh giá định kỳ dùng model Unsloth đang nằm trên GPU; so sánh CE-best/last bằng vLLM vẫn chạy sau mỗi node.
+Ở mỗi mốc eval100 bước và cuối train, v3 chỉ tính teacher-forced CE. Sau khi train xong từng node, vLLM so sánh CE-best/last và báo Planner route/tool accuracy, Caller action match, argument F1; không sinh đầu ra giữa train.
 
 ## Cấu hình hiện tại
 

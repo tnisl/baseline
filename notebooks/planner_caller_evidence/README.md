@@ -40,15 +40,15 @@ Assistant-only causal cross-entropy, normalized by actual assistant-token count,
 
 Training adds recovery examples and longer targets, so record/step count is larger than the prior notebook. Better throughput does **not** guarantee shorter total wall time. Generation evaluation also adds work.
 
-Cosine LR1e-5,3% warmup; CE and generation eval every100 steps and at end, early-stop patience3/min_delta.001. CE-best and early stopping still use CE; periodic generation metrics do not change checkpoint selection. CE-best remains available even if post-stage node generation prefers another checkpoint.
+Cosine LR1e-5,3% warmup; Teacher-forced CE eval every100 steps and at end, early-stop patience3/min_delta.001. CE-best and early stopping use CE. CE-best remains available even if post-stage node generation prefers another checkpoint.
 
-Each periodic evaluation greedily generates on **all** validation records for the current role (Planner807 / Caller573), sharded across both resident Unsloth models, batch4/GPU, max256 new tokens for Planner /192 for Caller, no enforcer. Prompts contain messages only; target answers are used exclusively for scoring. It prints schema validity, Planner route/tool accuracy and initial/intermediate/terminal agreement, or Caller full-action match, argument-field F1 and per-field counts. Reports identify this as the resident Unsloth/Transformers backend; numerics may differ from the later vLLM run. No second model is loaded while DDP holds GPUs. Training hidden-state/loss flags, checkpointing and RNG states are restored afterward. This adds potentially substantial evaluation time.
+Each periodic evaluation runs **only teacher-forced assistant-token CE**, over all validation records for the current role (Planner807 / Caller573), sharded across both training GPUs with eval batch4/GPU. No generation, route/tool accuracy, argument F1 or inference-mode switching occurs during training. CE history and duration are printed/saved. Generation metrics are computed by vLLM only after the role completes and training processes exit.
 
 ## Generation metrics and checkpoint selection
 
 After each role finishes, training processes exit and release GPU memory. A separate pinned **vLLM0.9.2 environment** evaluates CE-best and last checkpoints. Two independent GPU workers, batch4 each, greedy generation, no enforcer,256 Planner /192 Caller output tokens,8192 context. T4 prefix caching disabled; CUDA Graphs enabled; validated T4 LoRA compatibility patch retained. The LMFE package remains a transitive pinned dependency of vLLM but is not attached to generation.
 
-Both candidates receive the same messages/token IDs in each paired probe. If adapter files are identical, evaluate once. Workers flush output and parent prints progress. This post-stage vLLM comparison is additional to the resident-model generation evaluations during training.
+Both candidates receive the same messages/token IDs in each paired probe. If adapter files are identical, evaluate once. Workers flush output and parent prints progress. This post-stage vLLM comparison is the only generation evaluation in the finetuning notebook.
 
 Planner reports route/tool agreement, initial/intermediate/terminal agreement, schema validity and calls proposed after reference completion. Caller reports full-action match, argument-field F1 and per-field accuracy, including IDs/times. These use exact/fuzzy annotation comparisons, not a universal semantic checker; valid alternative tool orders can mismatch labels.
 
@@ -61,8 +61,7 @@ Root: `/kaggle/working/planner_caller_evidence/<RUN_NAME>/`.
 - `prepared/`: new rationales/targets, cached tokens, manifest, per-episode `data_audit.json` and scoring references.
 - `training/adapters/<role>/`: CE-best adapter, tokenizer, lineage and CE history.
 - `training/checkpoints/<role>/`: last two complete resume snapshots, best snapshot and atomic `latest.json`. Includes optimizer/scheduler/scaler/per-rank RNG and batch cursor.
-- `training/checkpoints/<role>/eval_history.json`: CE and generation metrics written at every eval, also preserved in resume snapshots and final `training_history.json`.
-- `training/node_eval/<role>/step-XXXXXXXX/`: periodic generation `report.json` and raw outputs in `gpu0.jsonl` / `gpu1.jsonl`.
+- `training/checkpoints/<role>/eval_history.json`: Teacher-forced CE metrics written at every eval, also preserved in resume snapshots and final `training_history.json`.
 - `node_eval/<role>/`: candidate configuration, per-GPU logs/raw generations and `report.json`.
 - `selected_adapters/<role>/`: self-contained recommended inference adapter, tokenizer and selection provenance. Exported `final_adapter` hash is explicitly a safetensors-file hash; original CE-best model-state hash is retained separately. Do not confuse these hash conventions.
 - `selected_adapters/checkpoint_manifest.json`, `data_contract.json`: file hashes, roles and prompt/data provenance.
@@ -78,6 +77,6 @@ uv run --no-project --python 3.12 --with numpy --with jsonschema --with safetens
 python make_notebook.py
 ```
 
-Checks cover evidence/future isolation, training-only no-action annotation, CE value/gradient parity with/without projection checkpointing, sorted weighted eval, role metrics and actual2-rank CPU checkpoint/resume parity. Local full preparation uses the supplied dataset/tokenizer without GPUs. These checks do not establish T4 VRAM compatibility, package startup on a new Kaggle image or quality gains.
+Checks cover evidence/future isolation, training-only no-action annotation, CE value/gradient parity with/without projection checkpointing, sorted weighted CE eval, post-stage role metrics, CE-only training wiring and actual2-rank CPU checkpoint/resume parity. Local full preparation uses the supplied dataset/tokenizer without GPUs. These checks do not establish T4 VRAM compatibility, package startup on a new Kaggle image or quality gains.
 
-Generation limits apply to both periodic and post-stage evaluation. Reports include `max_new_tokens` and `length_limited_count`; capped outputs are still scored and never silently counted as complete. Training context8192 and projection/loss chunk512 are unchanged. Use a fresh run root after this source change; old cached evaluation reports cannot be reused.
+Generation limits apply only to post-stage evaluation. Reports include `max_new_tokens` and `length_limited_count`; capped outputs are still scored and never silently counted as complete. Training context8192 and projection/loss chunk512 are unchanged. Use a fresh run root after this source change; old cached evaluation reports cannot be reused.

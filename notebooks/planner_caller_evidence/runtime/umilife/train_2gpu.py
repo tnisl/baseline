@@ -25,7 +25,7 @@ def main():
     from umilife.ddp_engine import fit,agreement
     from umilife.completion_loss import completion_loss
     p=argparse.ArgumentParser()
-    for k in ('stage','data-dir','data-root','output-dir','model','revision'):p.add_argument('--'+k,required=True)
+    for k in ('stage','data-dir','output-dir','model','revision'):p.add_argument('--'+k,required=True)
     p.add_argument('--train-batch-size',type=int,default=4);p.add_argument('--eval-batch-size',type=int,default=4)
     p.add_argument('--eval-steps',type=int,default=100)
     p.add_argument('--init-from',choices=('base',),required=True)
@@ -74,16 +74,13 @@ def main():
         return encoded
     train=cached_dataset('train');valid=cached_dataset('validation')
     assert train.stats['overlength']==valid.stats['overlength']==0,'No training examples may be silently dropped'
-    os.environ['TRAIN_RESUME_SIGNATURE']=hashlib.sha256(json.dumps({'manifest':digest(data/'manifest.json'),'stage':a.stage,'epochs':a.epochs,'batch':a.train_batch_size,'eval_batch':a.eval_batch_size,'eval_steps':a.eval_steps,'compile':os.environ.get('UNSLOTH_COMPILE_DISABLE'),'loss_chunk':os.environ.get('LIFEMATE_LOSS_CHUNK','512'),'projection_checkpoint':os.environ.get('LOSS_PROJECTION_CHECKPOINT','0'),'model':a.model,'revision':a.revision,'init_from':a.init_from},sort_keys=True).encode()).hexdigest()
+    os.environ['TRAIN_RESUME_SIGNATURE']=hashlib.sha256(json.dumps({'manifest':digest(data/'manifest.json'),'evaluation_mode':'teacher_forced_ce_only','stage':a.stage,'epochs':a.epochs,'batch':a.train_batch_size,'eval_batch':a.eval_batch_size,'eval_steps':a.eval_steps,'compile':os.environ.get('UNSLOTH_COMPILE_DISABLE'),'loss_chunk':os.environ.get('LIFEMATE_LOSS_CHUNK','512'),'projection_checkpoint':os.environ.get('LOSS_PROJECTION_CHECKPOINT','0'),'model':a.model,'revision':a.revision,'init_from':a.init_from},sort_keys=True).encode()).hexdigest()
     def save_adapter(model,path):model.save_pretrained(path,safe_serialization=True)
-    from umilife.training_eval import make_evaluator
-    evaluator=make_evaluator(a.stage,data,a.data_root,tokenizer,torch.device('cuda',local),
-        out/'node_eval'/a.stage,FastLanguageModel.for_inference,FastLanguageModel.for_training,a.eval_batch_size)
     result=fit(model,train,valid,Collator(tokenizer.pad_token_id),torch.device('cuda',local),
         out/'checkpoints'/a.stage,a.epochs,1e-5,
         save_adapter,load_adapter,amp_dtype=dtype,train_batch_size=a.train_batch_size,
         eval_batch_size=a.eval_batch_size,loss_function=completion_loss,
-        eval_steps=a.eval_steps,evaluation_callback=evaluator)
+        eval_steps=a.eval_steps)
     final=adapter_state(model);assert final['finite'] and final['sha256']!=initial['sha256']
     agreement(final['sha256'])
     if dist.get_rank()==0:

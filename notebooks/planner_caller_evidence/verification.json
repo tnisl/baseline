@@ -1,6 +1,6 @@
 {
   "cpu_tests": 8,
-  "cpu_two_rank_resume": "pass: periodic metrics persisted identically through checkpoint/resume",
+  "cpu_two_rank_resume": "pass: CE-only evaluation, identical final hash/loss after optimizer/scheduler/RNG/cursor resume",
   "causal_loss_and_gradients": "equivalent_with_and_without_projection_checkpoint",
   "full_local_data_preparation": "pass",
   "train_split_ids": 1300,
@@ -59,9 +59,10 @@
   },
   "gpu_run": false,
   "throughput_benchmark": false,
-  "periodic_generation_metrics_cpu": "pass: caller cap192, shared planner cap256, stop/length metrics, state restoration",
   "output_token_limits": {
     "planner": 256,
     "caller": 192
-  }
+  },
+  "during_training_eval": "teacher_forced_ce_only",
+  "generation_eval": "post_stage_vllm_only"
 }

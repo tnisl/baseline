@@ -60,7 +60,7 @@ class LossModule(torch.nn.Module):
 
 
 def fit(model,train,valid,collate,device,output,epochs,lr,save_model,load_model,
-        eval_steps=50,patience=3,min_delta=.001,amp_dtype=None,train_batch_size=4,eval_batch_size=4,loss_function=None,max_steps=None,evaluation_callback=None):
+        eval_steps=50,patience=3,min_delta=.001,amp_dtype=None,train_batch_size=4,eval_batch_size=4,loss_function=None,max_steps=None):
     rank=dist.get_rank();world=dist.get_world_size();assert world==2
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     latest=output/'latest.json'
@@ -185,11 +185,6 @@ def fit(model,train,valid,collate,device,output,epochs,lr,save_model,load_model,
                 eval_started=time.monotonic()
                 metric=weighted_eval(model,valid,collate,device,amp,eval_batch_size,loss_function)
                 ce_seconds=time.monotonic()-eval_started
-                node_report=None;generation_started=time.monotonic()
-                if evaluation_callback is not None:
-                    optimizer.zero_grad(set_to_none=True)
-                    node_report=evaluation_callback(model,step)
-                generation_seconds=time.monotonic()-generation_started if evaluation_callback is not None else 0.
                 duration=time.monotonic()-eval_started;eval_seconds+=duration
                 improved=metric<best
                 if metric<significant-min_delta:significant=metric;bad=0
@@ -209,8 +204,7 @@ def fit(model,train,valid,collate,device,output,epochs,lr,save_model,load_model,
                     saved_hash=agreement(state_digest(model))
                 event={'step':step,'epoch':last_epoch,'eval_loss':metric,'best_step':best_step,
                        'best_loss':best,'patience_used':bad,'improved':improved,'evaluation_seconds':duration,
-                       'ce_evaluation_seconds':ce_seconds,'generation_evaluation_seconds':generation_seconds}
-                if node_report is not None:event['node_eval']=node_report
+                       'ce_evaluation_seconds':ce_seconds,'evaluation_kind':'teacher_forced_ce'}
                 history.append(event)
                 if rank==0:
                     (output/'eval_history.tmp').write_text(json.dumps(history,ensure_ascii=False,indent=2))
