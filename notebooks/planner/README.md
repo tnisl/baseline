@@ -25,3 +25,5 @@ python notebooks/planner/make_notebook.py
 The requirements pin the Qwen3.5/T4 dependency family. packages.txt captures the actual resolved environment. config.json records the model revision, and source_manifest.json records the embedded source hashes.
 
 Keep notebook/output private. artifacts.zip contains the final adapter, prepared examples, manifests and reports; intermediate checkpoints and compile caches remain outside that archive. No training, GPU smoke or validation-quality run is performed by publishing the notebook.
+
+Startup diagnostics record PID/rank, stage duration, process RSS, available system RAM and allocated/reserved GPU memory before/after import, model loading, LoRA attachment and Trainer initialization. If a stage takes longer than 120 seconds, faulthandler repeatedly records all Python thread stacks in diagnostics/rankN.STAGE.stacks.log. The timer is diagnostic, not a termination deadline. These files remain under the output directory even when startup fails; no optimizer/model changes are implied by this diagnostic update.

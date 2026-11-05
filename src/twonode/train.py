@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 
 from .config import RunConfig
+from .diagnostics import startup_stage
 from .io import fingerprint, read_jsonl, write_json
 
 
@@ -41,20 +42,22 @@ def train(config):
     os.environ["TRITON_CACHE_DIR"] = str(cache / "triton")
 
     # Unsloth must patch Transformers before any ML imports in this process.
-    from unsloth import FastLanguageModel
-    import torch
-    from transformers import Trainer, TrainerCallback, TrainingArguments, set_seed
-    from .tokenization import CompletionCollator, prompt_ids
+    with startup_stage(config.path, local_rank, "import_runtime"):
+        from unsloth import FastLanguageModel
+        import torch
+        from transformers import Trainer, TrainerCallback, TrainingArguments, set_seed
+        from .tokenization import CompletionCollator, prompt_ids
 
     if not torch.cuda.is_available() or torch.cuda.device_count() < world_size:
         raise RuntimeError("Two CUDA GPUs must be visible to each DDP process")
     torch.cuda.set_device(local_rank)
     set_seed(config.seed)
-    model, processor = FastLanguageModel.from_pretrained(
-        model_name=config.model, revision=config.revision, max_seq_length=config.max_length,
-        dtype=torch.float16, load_in_4bit=False, load_in_16bit=True, full_finetuning=False,
-        device_map={"": local_rank},
-    )
+    with startup_stage(config.path, local_rank, "load_model"):
+        model, processor = FastLanguageModel.from_pretrained(
+            model_name=config.model, revision=config.revision, max_seq_length=config.max_length,
+            dtype=torch.float16, load_in_4bit=False, load_in_16bit=True, full_finetuning=False,
+            device_map={"": local_rank},
+        )
     tokenizer = getattr(processor, "tokenizer", processor)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -66,12 +69,13 @@ def train(config):
     targets = language_lora_targets(model, torch)
     if not targets:
         raise RuntimeError("No language projection modules were found for LoRA")
-    model = FastLanguageModel.get_peft_model(
-        model, r=config.rank, lora_alpha=config.alpha, lora_dropout=0, bias="none",
-        target_modules=targets, use_gradient_checkpointing="unsloth", random_state=config.seed,
-        finetune_vision_layers=False, finetune_language_layers=True,
-        finetune_attention_modules=True, finetune_mlp_modules=True,
-    )
+    with startup_stage(config.path, local_rank, "attach_lora"):
+        model = FastLanguageModel.get_peft_model(
+            model, r=config.rank, lora_alpha=config.alpha, lora_dropout=0, bias="none",
+            target_modules=targets, use_gradient_checkpointing="unsloth", random_state=config.seed,
+            finetune_vision_layers=False, finetune_language_layers=True,
+            finetune_attention_modules=True, finetune_mlp_modules=True,
+        )
     model.config.use_cache = False
     trainable = {name: parameter for name, parameter in model.named_parameters() if parameter.requires_grad}
     if not trainable or any("lora_" not in name for name in trainable):
@@ -130,8 +134,9 @@ def train(config):
         ddp_find_unused_parameters=False, ddp_broadcast_buffers=False,
         average_tokens_across_devices=True,
     )
-    trainer = Trainer(model=model, args=arguments, train_dataset=rows,
-                      data_collator=CompletionCollator(tokenizer.pad_token_id), callbacks=[Checks()])
+    with startup_stage(config.path, local_rank, "initialize_trainer"):
+        trainer = Trainer(model=model, args=arguments, train_dataset=rows,
+                          data_collator=CompletionCollator(tokenizer.pad_token_id), callbacks=[Checks()])
     if force_fp32 and trainer.accelerator.mixed_precision != "no":
         raise RuntimeError("Unsloth requires no global autocast on Qwen3.5/T4")
     print(json.dumps({"rank": local_rank, "precision": initial_precision,

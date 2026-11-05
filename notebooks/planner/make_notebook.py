@@ -56,7 +56,7 @@ Mỗi run cần tên thư mục mới. Không tự chạy smoke trước full ho
 import base64, hashlib, io, json, os, shutil, subprocess, sys, zipfile
 
 PROFILE = "smoke"  # "smoke" or "full"
-RUN_NAME = "planner_smoke_01"  # use a NEW name for each run
+RUN_NAME = "planner_smoke_02"  # use a NEW name for each run
 DATA_ROOT = None  # parent containing train/train.jsonl; autodetected if None
 DATA_ARCHIVE = None  # optional explicit ZIP in the attached dataset
 MODEL_REVISION = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
@@ -132,7 +132,7 @@ assert (DATA_ROOT / "train/train.jsonl").is_file()
 assert (DATA_ROOT / "train/train_tools_catalog.json").is_file()
 print("Training data:", DATA_ROOT)
 ''')
-    markdown("## Train, then validate\nNo periodic validation or best-loss selection. Export the final adapter, exit DDP, then generate once per held-out prefix. Full validation covers all 200 episodes. Invalid JSON/tool choices count as wrong. Base comparison uses the identical frozen backbone with the adapter disabled. An overlength prompt fails explicitly; do not remove observations to make it fit.")
+    markdown("## Train, then validate\nNo periodic validation or best-loss selection. Export the final adapter, exit DDP, then generate once per held-out prefix. Full validation covers all 200 episodes. Invalid JSON/tool choices count as wrong. Base comparison uses the identical frozen backbone with the adapter disabled. An overlength prompt fails explicitly; do not remove observations to make it fit.\n\nStartup prints start/complete markers with PID, rank and RAM/GPU memory for import, model load, LoRA attachment and Trainer initialization. A stage taking over 120 seconds dumps all Python thread stacks repeatedly into OUTPUT/diagnostics/rankN.STAGE.stacks.log. This records evidence; it does not automatically terminate the job or establish the cause of a stall.")
     code('''command = [PYTHON, "-u", "-m", "twonode.run", "--data-root", str(DATA_ROOT),
            "--split-file", str(SOURCE / "split.txt"), "--output", str(OUTPUT),
            "--profile", PROFILE, "--revision", MODEL_REVISION,
