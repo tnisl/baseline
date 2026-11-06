@@ -30,14 +30,19 @@ class RunConfig:
     def __post_init__(self):
         if self.profile not in ("smoke", "full"):
             raise ValueError("profile must be smoke or full")
-        if (self.micro_batch, self.gradient_accumulation, self.world_size) != (2, 2, 2):
-            raise ValueError("This baseline requires microbatch 2 × accumulation 2 × two GPUs = 8")
+        if any(type(value) is not int or value <= 0 for value in
+               (self.micro_batch, self.gradient_accumulation, self.world_size)):
+            raise ValueError("num_gpu, micro_batch and grad_acc must be positive integers")
         if not 0 < self.max_length <= 16384 or self.max_new_tokens >= self.max_length:
             raise ValueError("Invalid context/output budget")
         if self.smoke_steps <= 0 or self.epochs <= 0 or self.eval_batch <= 0:
             raise ValueError("Training steps, epochs and eval batch must be positive")
         if self.check_kernels and self.profile == "smoke" and self.smoke_steps < 2:
             raise ValueError("Kernel profiling requires at least two optimizer steps")
+
+    @property
+    def effective_batch(self):
+        return self.world_size * self.micro_batch * self.gradient_accumulation
 
     @property
     def path(self):

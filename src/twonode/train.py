@@ -35,7 +35,7 @@ def train(config):
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     if world_size != config.world_size:
-        raise ValueError("Launch training using torchrun --nproc_per_node=2")
+        raise ValueError(f"Launch training using torchrun --nproc_per_node={config.world_size}")
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cache = config.path / "compile_cache" / f"rank{local_rank}"
     os.environ["TORCHINDUCTOR_CACHE_DIR"] = str(cache / "inductor")
@@ -49,7 +49,7 @@ def train(config):
         from .tokenization import CompletionCollator, prompt_ids
 
     if not torch.cuda.is_available() or torch.cuda.device_count() < world_size:
-        raise RuntimeError("Two CUDA GPUs must be visible to each DDP process")
+        raise RuntimeError(f"At least {world_size} CUDA GPUs must be visible to each training process")
     torch.cuda.set_device(local_rank)
     set_seed(config.seed)
     with startup_stage(config.path, local_rank, "load_model"):
@@ -135,7 +135,7 @@ def train(config):
                                   "top_cuda_kernels": summary["cuda_kernels"][:5],
                                   "candidate_kernel_counts": {key: len(value) for key, value in
                                                                summary["kernel_name_candidates"].items()}}), flush=True)
-            if config.check_kernels and state.global_step == 2:
+            if config.check_kernels and state.global_step == 2 and torch.distributed.is_initialized():
                 # Keep profile export time out of the next step on the other rank.
                 torch.distributed.barrier()
 
@@ -175,7 +175,7 @@ def train(config):
                           "binding_counts": inventory["binding_counts"]}), flush=True)
     print(json.dumps({"rank": local_rank, "precision": initial_precision,
                       "trainer_fp16": trainer.args.fp16, "lora_targets": targets,
-                      "examples": len(rows), "effective_batch": 8}), flush=True)
+                      "examples": len(rows), "effective_batch": config.effective_batch}), flush=True)
     torch.cuda.reset_peak_memory_stats()
     try:
         result = trainer.train()
@@ -213,6 +213,7 @@ def train(config):
                    "checkpoint_selection": "final; no validation during training",
                    "global_step": trainer.state.global_step, "world_size": world_size,
                    "micro_batch": config.micro_batch, "gradient_accumulation": config.gradient_accumulation,
+                   "effective_batch": config.effective_batch,
                    "trainable_parameters": sum(p.numel() for p in trainable.values()),
                    "target_modules": targets, "initial_precision": initial_precision,
                    "trainer_fp16": trainer.args.fp16, "trainer_bf16": trainer.args.bf16,

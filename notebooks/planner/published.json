@@ -14,5 +14,7 @@
   "kernel_diagnostics": true,
   "profiled_optimizer_step": 2,
   "profiler_rank": 0,
-  "gpu_kernel_execution_verified": false
+  "gpu_kernel_execution_verified": false,
+  "local_update_pending": true,
+  "local_update_note": "NUM_GPU, MICRO_BATCH, GRAD_ACC added locally; Kaggle connector unavailable. Published version7 does not include this update."
 }

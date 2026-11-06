@@ -515,7 +515,7 @@ ID và hash ở trên là placeholder minh họa. Stop ngay từ đầu cho tool
 | Biểu diễn schema Planner | JSON, giữ parameters/description/kind/returns |
 | Ngôn ngữ prompt | Tiếng Anh; không sinh rationale |
 | Planner LoRA | Không lượng tử hóa; rank16/alpha32/dropout0, LR5e-5, 2 epoch |
-| Batch / GPU | Microbatch2 × T4 GPU2 × accumulation2 = 8, DDP |
+| Batch / GPU | Chỉnh NUM_GPU × MICRO_BATCH × GRAD_ACC; mặc định 2 × 2 × 2 = 8, DDP khi nhiều GPU |
 | Precision | Yêu cầu base FP16; giữ FP32 computation nếu Unsloth yêu cầu trên T4; không ép FP16 autocast |
 | Split, seed, checkpoint | split.txt 200 IDs, seed42, final adapter; không validation trong train |
 | Context/output Planner | 8.192 / 64 token; thinking tắt, không cắt input |
@@ -564,17 +564,18 @@ Các module data/prompt/metrics độc lập với model runtime. Import package
 
 Mở notebook được liên kết trong [hướng dẫn Planner](notebooks/planner/README.md), chọn T4 ×2 và Internet. Notebook đã nhúng source/split; chỉ cần gắn dataset cuộc thi riêng tư. Nếu dataset là ZIP, chỉ lấy train.jsonl và train_tools_catalog.json; không lấy file environment.
 
-- PROFILE="smoke": 16 train episodes, 8 validation episodes, 4 optimizer steps. Cùng microbatch2/GPU và accumulation2 như full. Chọn cả episode dài, nhiều call, missing_info và no-action khi có.
+- PROFILE="smoke": 16 train episodes, 8 validation episodes, 4 optimizer steps. Dùng cùng NUM_GPU, MICRO_BATCH, GRAD_ACC đã chọn như full. Chọn cả episode dài, nhiều call, missing_info và no-action khi có.
+- NUM_GPU, MICRO_BATCH, GRAD_ACC chỉnh trong cell cấu hình notebook; batch hiệu dụng là tích ba giá trị. Kaggle T4×2 hỗ trợ chọn 1 hoặc 2 GPU; EVAL_BATCH độc lập với batch train.
 - PROFILE="full": toàn bộ train partition, 2 epoch, sau đó validation trên mọi prefix của đủ 200 validation episodes.
 - CHECK_KERNELS=True mặc định trong notebook: ghi bindings từng layer sau Unsloth patch trên cả hai rank; profile CPU/CUDA của optimizer step2 trên rank0. Artifact nằm trong diagnostics/ và được lưu trước validation. Xem [hướng dẫn đọc kernel report](notebooks/planner/README.md). Không dùng thời gian step2 để so sánh throughput vì có overhead của profiler.
 - Đổi RUN_NAME cho mỗi lần chạy. Không tự ghi đè/resume run cũ và không dùng adapter smoke làm trọng số khởi tạo full.
 - Mặc định so sánh base và adapter trên cùng prompt token IDs, greedy decoding, không repair/enforcer. Base là cùng backbone đóng băng với adapter được disable.
 
-Pipeline không thực hiện CE/generation validation trong train, không chọn best-loss checkpoint và không early-stop. Checkpoint định kỳ phục vụ lưu tiến trình; adapter xuất cuối là final adapter. Validation chỉ bắt đầu sau khi hai process DDP thoát hoàn toàn.
+Pipeline không thực hiện CE/generation validation trong train, không chọn best-loss checkpoint và không early-stop. Checkpoint định kỳ phục vụ lưu tiến trình; adapter xuất cuối là final adapter. Validation chỉ bắt đầu sau khi các process train thoát hoàn toàn; mỗi GPU đã chọn chạy một worker validation.
 
 ### 14.3. Chạy từ command line
 
-Trong Python3.12 environment có CUDA và hai T4, cài requirements của notebook và package:
+Trong Python3.12 environment có CUDA, cài requirements của notebook và package:
 
 ~~~bash
 pip install -r notebooks/planner/requirements.txt
@@ -583,7 +584,7 @@ python -m twonode.run --data-root ../train+public_test --split-file split.txt --
 python -m twonode.run --data-root ../train+public_test --split-file split.txt --output outputs/planner_full_01 --profile full
 ~~~
 
-Lệnh run tự launch torchrun hai process cho training, không chạy lệnh run bên trong torchrun lần nữa. Có --revision, --max-length, --eval-batch, --epochs, --learning-rate và --skip-base. Thêm --check-kernels để bật kiểm định kernel như notebook; CLI mặc định không profile. Không tự giảm microbatch hoặc đổi precision khi OOM.
+Lệnh run tự launch torchrun với số process bằng --num-gpu, không chạy lệnh run bên trong torchrun lần nữa. Có --micro-batch, --grad-acc, --revision, --max-length, --eval-batch, --epochs, --learning-rate và --skip-base. Thêm --check-kernels để bật kiểm định kernel như notebook; CLI mặc định không profile. Không tự giảm microbatch hoặc đổi precision khi OOM.
 
 ### 14.4. Dữ liệu và tokenization đã audit local
 
