@@ -24,8 +24,10 @@ class HFGenerator:
         self.tokenizer.padding_side = "left"
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        # GPU 0 also handles generation inputs/outputs. Move more weights to GPU 1
+        # to leave room for runtime activations; these are weight-placement budgets.
         placement = {"device_map": {"": 0}} if num_gpus == 1 else {
-            "device_map": "balanced", "max_memory": {0: "10GiB", 1: "10GiB"}}
+            "device_map": "balanced", "max_memory": {0: "3GiB", 1: "10GiB"}}
         self.model = AutoModelForImageTextToText.from_pretrained(
             model_id, revision=revision, dtype=torch.float16,
             attn_implementation="sdpa", **placement).eval()
@@ -35,8 +37,14 @@ class HFGenerator:
         if actual != used:
             raise RuntimeError(f"Model must span GPUs {used}, without CPU/disk offload: {self.device_map}")
         self.input_device = self.model.get_input_embeddings().weight.device
+        parameter_bytes = {str(i): 0 for i in range(num_gpus)}
+        for parameter in self.model.parameters():
+            if parameter.device.type == "cuda":
+                parameter_bytes[str(parameter.device.index)] += parameter.numel() * parameter.element_size()
+        self.parameter_gib_per_gpu = {key: value/2**30 for key, value in parameter_bytes.items()}
         print(json.dumps({"stage": "model_loaded", "num_gpus": num_gpus,
                           "device_map": self.device_map,
+                          "parameter_gib_per_gpu": self.parameter_gib_per_gpu,
                           "input_device": str(self.input_device)}), flush=True)
         self.max_input, self.max_new_tokens = max_input, max_new_tokens
         self.stats = []
@@ -161,6 +169,7 @@ def main():
                             ("torch", "transformers", "accelerate")},
                   gpus=[generator.torch.cuda.get_device_name(i) for i in range(a.num_gpus)],
                   device_map=generator.device_map,
+                  parameter_gib_per_gpu=generator.parameter_gib_per_gpu,
                   input_device=str(generator.input_device))
     (a.output/"config.json").write_text(json.dumps(config, indent=2))
     summaries = []

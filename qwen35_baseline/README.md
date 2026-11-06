@@ -8,22 +8,26 @@ Không phụ thuộc các thay đổi local hay runtime Planner/Caller của rep
 
 Notebook riêng cho kiểm tra transcript: `kaggle_qwen35_4b_random200.ipynb`.
 [Mở trên Kaggle](https://www.kaggle.com/code/cymeu4l0t/lifemate-qwen35-4b-random200).
-Mặc định chọn ngẫu nhiên 200 mẫu từ toàn bộ train, không thay thế, seed=42.
+Giữ cấu hình Kaggle v17 của user: 100 mẫu ngẫu nhiên, không thay thế, seed=42,
+batch 1 và MAX_INPUT=16384. Đặt SAMPLE_SIZE=200 để chạy lại 200 mẫu.
 Đọc audio_text cho user hiện tại và history; không cần ASR. Tìm dataset
 cymeu4l0t/zaloai-dataset trong Input hoặc nạp qua KaggleHub nếu chưa gắn.
 Bấm Run All sau khi chọn **GPU T4 x2** và bật Internet trên bản Kaggle riêng tư.
 NUM_GPUS=2 mặc định. Model dùng device_map="balanced", ngân sách trọng số
-10GiB mỗi GPU để dành VRAM cho inference. Runtime yêu cầu model thực sự nằm
+GPU 0 là 3GiB, GPU 1 là 10GiB, chuyển thêm layer sang GPU 1 để chừa VRAM
+inference cho GPU 0. Ngân sách này không giới hạn tổng VRAM lúc chạy, không bảo
+đảm hai GPU có cùng peak; cần đo trên GPU thật. Runtime yêu cầu model thực sự nằm
 trên cả GPU0/GPU1, không offload CPU/disk. Đây là model parallel, không phải
 hai replica hoặc tensor parallel; không hứa tăng tốc gấp đôi.
-Giữ MAX_INPUT=8192 từ cấu hình Kaggle hiện tại; không tự truncate prompt.
-BATCH_SIZE=4 mặc định. Mỗi lượt generate nhận tối đa 4 prompt, left padding kèm
+Không tự truncate prompt. BATCH_SIZE=1 trong notebook validation theo cấu hình
+user hiện tại; notebook smoke tổng quát và CLI vẫn mặc định 4. Mỗi lượt generate
+nhận tối đa BATCH_SIZE prompt, left padding kèm
 attention mask; mỗi mẫu có history, schema tool và ToolEnv riêng. Mẫu dừng/lỗi
 được bỏ khỏi lượt tiếp theo, batch cuối có thể nhỏ hơn 4. Không ghép transcript
 thành một hội thoại. EOS và giới hạn input được kiểm riêng từng mẫu.
-RUN_NAME mặc định là qwen35_random200_2gpu_batch4_extract_01, không ghi đè output cũ.
+RUN_NAME mặc định là qwen35_random100_2gpu_rebalance_01, không ghi đè output cũ.
 Đổi SEED để lấy tập khác; selected_ids.txt, selection.json lưu ID và SHA256 dữ liệu.
-Mọi mẫu lỗi vẫn nằm trong mẫu số 200; không loại mẫu theo kết quả model.
+Mọi mẫu lỗi vẫn nằm trong mẫu số SAMPLE_SIZE; không loại mẫu theo kết quả model.
 
 Upload kaggle_qwen35_4b.ipynb vào notebook **riêng tư**, bật Internet và GPU T4 x2.
 Notebook tự nhúng source, không cần clone repo hay GitHub token.
@@ -38,7 +42,7 @@ Gắn dataset cuộc thi riêng tư (thư mục hoặc train+public_test.zip).
 ASR_MODEL_DIR chứa encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt của BTC.
 ASR CPU sherpa-onnx, không tải model ASR ngoài; không dùng oracle fallback.
 Muốn dùng transcript có sẵn, chạy CLI với --transcripts (JSON audio-path -> text).
-Các nhóm tối đa 4 mẫu chạy lần lượt với một model chia layer trên hai GPU.
+Các nhóm tối đa BATCH_SIZE mẫu chạy lần lượt với một model chia layer trên hai GPU.
 CLI có --batch-size (mặc định 4); đổi BATCH_SIZE trong notebook nếu cần.
 Nếu CUDA OOM khi generate batch, mọi mẫu đang generate trong batch đó được ghi
 lỗi, không tự retry hoặc giảm batch; kết quả tool đã chạy trước lỗi vẫn được giữ.
@@ -46,7 +50,8 @@ CLI có --num-gpus 1 để chủ động dùng một GPU, không tự fallback k
 Không cài dependency của baseline vào môi trường Transformers 4.x đang train Qwen3.
 Không cần flash-attn/FLA: dùng SDPA và đường fallback Gated DeltaNet của Transformers.
 Chưa chạy GPU Kaggle trong lần triển khai; smoke là bước kiểm chứng tương thích/VRAM.
-Version packages, resolved HF revision, device map, token counts, thời gian và peak VRAM từng GPU
+Version packages, resolved HF revision, device map, parameter_gib_per_gpu (trọng số,
+không gồm buffers/cache/activations), token counts, thời gian và peak VRAM từng GPU
 được lưu để tái lập. Có thể cố định REVISION bằng commit HF hoặc dùng snapshot local.
 Generation stats ghi batch size, token counts từng mẫu và chiều dài input sau padding.
 seconds từng mẫu là thời gian qua các lượt batch của mẫu đó, không phải latency

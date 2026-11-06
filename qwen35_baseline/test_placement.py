@@ -43,7 +43,7 @@ class PlacementTests(unittest.TestCase):
         generator = self.load()
         kwargs = self.factory.from_pretrained.call_args.kwargs
         self.assertEqual(kwargs["device_map"], "balanced")
-        self.assertEqual(kwargs["max_memory"], {0: "10GiB", 1: "10GiB"})
+        self.assertEqual(kwargs["max_memory"], {0: "3GiB", 1: "10GiB"})
         self.assertEqual(kwargs["dtype"], "float16")
         self.assertEqual(generator([], []), "Done")
         self.tokens.to.assert_called_once_with("cuda:1")
@@ -94,6 +94,15 @@ class PlacementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "T4 x2"):
             self.load()
         self.factory.from_pretrained.assert_not_called()
+
+    def test_records_actual_parameter_memory_per_gpu(self):
+        self.model.parameters.return_value = [
+            SimpleNamespace(device=SimpleNamespace(type="cuda", index=0),
+                            numel=lambda: 2**29, element_size=lambda: 2),
+            SimpleNamespace(device=SimpleNamespace(type="cuda", index=1),
+                            numel=lambda: 2**30, element_size=lambda: 2)]
+        generator = self.load()
+        self.assertEqual(generator.parameter_gib_per_gpu, {"0": 1.0, "1": 2.0})
 
     def test_rejects_single_gpu_map_and_cpu_offload(self):
         for mapping in ({"": 0}, {"a": 0, "b": 1, "c": "cpu"}):
