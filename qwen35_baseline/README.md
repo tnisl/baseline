@@ -1,7 +1,7 @@
 # Qwen3.5-4B LifeMate baseline
 
 Một model Qwen/Qwen3.5-4B chưa fine-tune chọn tool và arguments từng bước.
-Native Qwen3.5 XML tool calls, non-thinking, greedy, FP16 trên GPU0.
+Native Qwen3.5 XML tool calls, non-thinking, greedy, FP16 chia trên hai GPU.
 Không phụ thuộc các thay đổi local hay runtime Planner/Caller của repo.
 
 ## Kaggle
@@ -11,11 +11,17 @@ Notebook riêng cho kiểm tra transcript: `kaggle_qwen35_4b_random200.ipynb`.
 Mặc định chọn ngẫu nhiên 200 mẫu từ toàn bộ train, không thay thế, seed=42.
 Đọc audio_text cho user hiện tại và history; không cần ASR. Tìm dataset
 cymeu4l0t/zaloai-dataset trong Input hoặc nạp qua KaggleHub nếu chưa gắn.
-Bấm Run All sau khi bật GPU và Internet trên bản Kaggle riêng tư.
+Bấm Run All sau khi chọn **GPU T4 x2** và bật Internet trên bản Kaggle riêng tư.
+NUM_GPUS=2 mặc định. Model dùng device_map="balanced", ngân sách trọng số
+10GiB mỗi GPU để dành VRAM cho inference. Runtime yêu cầu model thực sự nằm
+trên cả GPU0/GPU1, không offload CPU/disk. Đây là model parallel, không phải
+hai replica hoặc tensor parallel; không hứa tăng tốc gấp đôi.
+Giữ MAX_INPUT=8192 từ cấu hình Kaggle hiện tại; không tự truncate prompt.
+RUN_NAME mặc định mới là qwen35_random200_2gpu_01, không ghi đè output cũ.
 Đổi SEED để lấy tập khác; selected_ids.txt, selection.json lưu ID và SHA256 dữ liệu.
 Mọi mẫu lỗi vẫn nằm trong mẫu số 200; không loại mẫu theo kết quả model.
 
-Upload kaggle_qwen35_4b.ipynb vào notebook **riêng tư**, bật Internet và GPU T4.
+Upload kaggle_qwen35_4b.ipynb vào notebook **riêng tư**, bật Internet và GPU T4 x2.
 Notebook tự nhúng source, không cần clone repo hay GitHub token.
 Gắn dataset cuộc thi riêng tư (thư mục hoặc train+public_test.zip).
 Đổi DATA_ROOT/DATA_ZIP nếu có nhiều dataset trùng cấu trúc.
@@ -28,11 +34,12 @@ Gắn dataset cuộc thi riêng tư (thư mục hoặc train+public_test.zip).
 ASR_MODEL_DIR chứa encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt của BTC.
 ASR CPU sherpa-onnx, không tải model ASR ngoài; không dùng oracle fallback.
 Muốn dùng transcript có sẵn, chạy CLI với --transcripts (JSON audio-path -> text).
-T4 x2 chỉ dùng GPU0; đây là baseline tuần tự, chưa tối ưu throughput.
+Mẫu chạy tuần tự với một model chia layer trên hai GPU; chưa tối ưu throughput.
+CLI có --num-gpus 1 để chủ động dùng một GPU, không tự fallback khi thiếu GPU.
 Không cài dependency của baseline vào môi trường Transformers 4.x đang train Qwen3.
 Không cần flash-attn/FLA: dùng SDPA và đường fallback Gated DeltaNet của Transformers.
 Chưa chạy GPU Kaggle trong lần triển khai; smoke là bước kiểm chứng tương thích/VRAM.
-Version packages, resolved HF revision, GPU, token counts, thời gian và peak VRAM
+Version packages, resolved HF revision, device map, token counts, thời gian và peak VRAM từng GPU
 được lưu để tái lập. Có thể cố định REVISION bằng commit HF hoặc dùng snapshot local.
 
 ## Local CLI
@@ -75,6 +82,7 @@ python qwen35_baseline/run.py --data-root ../train+public_test --split train --i
 ~~~bash
 python -B qwen35_baseline/test_agent.py
 python -B qwen35_baseline/test_scoring.py
+python -B qwen35_baseline/test_placement.py
 python -B qwen35_baseline/make_notebook.py
 ~~~
 

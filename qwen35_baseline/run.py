@@ -11,16 +11,30 @@ from agent import messages_for, run_episode
 from scoring import score
 
 class HFGenerator:
-    def __init__(self, model_id, revision, max_input, max_new_tokens):
+    def __init__(self, model_id, revision, max_input, max_new_tokens, num_gpus=2):
         import torch
         from transformers import AutoModelForImageTextToText, AutoTokenizer
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA GPU required; run the Kaggle notebook")
+        if torch.cuda.device_count() < num_gpus:
+            raise RuntimeError(f"Requested {num_gpus} GPUs; select GPU T4 x2 in Kaggle settings")
         self.torch = torch
+        self.num_gpus = num_gpus
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        placement = {"device_map": {"": 0}} if num_gpus == 1 else {
+            "device_map": "balanced", "max_memory": {0: "10GiB", 1: "10GiB"}}
         self.model = AutoModelForImageTextToText.from_pretrained(
             model_id, revision=revision, dtype=torch.float16,
-            device_map={"": 0}, attn_implementation="sdpa").eval()
+            attn_implementation="sdpa", **placement).eval()
+        self.device_map = {key: str(value) for key, value in self.model.hf_device_map.items()}
+        used = {str(i) for i in range(num_gpus)}
+        actual = {value.removeprefix("cuda:") for value in self.device_map.values()}
+        if actual != used:
+            raise RuntimeError(f"Model must span GPUs {used}, without CPU/disk offload: {self.device_map}")
+        self.input_device = self.model.get_input_embeddings().weight.device
+        print(json.dumps({"stage": "model_loaded", "num_gpus": num_gpus,
+                          "device_map": self.device_map,
+                          "input_device": str(self.input_device)}), flush=True)
         self.max_input, self.max_new_tokens = max_input, max_new_tokens
         self.stats = []
         self.resolved_revision = getattr(self.model.config, "_commit_hash", None)
@@ -33,7 +47,7 @@ class HFGenerator:
         length = inputs["input_ids"].shape[-1]
         if length > self.max_input:
             raise ValueError(f"Input {length} tokens exceeds {self.max_input}; no truncation")
-        inputs = {k: v.to("cuda:0") for k, v in inputs.items()}
+        inputs = {k: v.to(self.input_device) for k, v in inputs.items()}
         started = time.monotonic()
         with self.torch.inference_mode():
             output = self.model.generate(
@@ -72,6 +86,7 @@ def main():
     p.add_argument("--max-input", type=int, default=16384)
     p.add_argument("--max-new-tokens", type=int, default=768)
     p.add_argument("--max-steps", type=int, default=8)
+    p.add_argument("--num-gpus", type=int, choices=[1, 2], default=2)
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args()
     if a.split != "train" and a.mode == "oracle":
@@ -97,14 +112,16 @@ def main():
     if a.output.exists():
         p.error("Output already exists; choose a fresh directory (no implicit reset/resume)")
     a.output.mkdir(parents=True)
-    generator = HFGenerator(a.model, a.revision, a.max_input, a.max_new_tokens)
+    generator = HFGenerator(a.model, a.revision, a.max_input, a.max_new_tokens, a.num_gpus)
     config = {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()}
     config.update(resolved_revision=generator.resolved_revision,
                   catalog_sha256=hashlib.sha256(catalog_file.read_bytes()).hexdigest(),
                   selected_ids=[r["id"] for r in rows],
                   packages={n: importlib.metadata.version(n) for n in
                             ("torch", "transformers", "accelerate")},
-                  gpu=generator.torch.cuda.get_device_name(0))
+                  gpus=[generator.torch.cuda.get_device_name(i) for i in range(a.num_gpus)],
+                  device_map=generator.device_map,
+                  input_device=str(generator.input_device))
     (a.output/"config.json").write_text(json.dumps(config, indent=2))
     summaries = []
     started = time.monotonic()
@@ -138,7 +155,9 @@ def main():
               "statuses": dict(Counter(r["status"] for r in summaries)),
               "note": "Local approximation of published hash-gated F1; fuzzy tokenization may differ from BTC. No latency gate; model load and ASR excluded.",
               "generation": generator.stats,
-              "peak_cuda_gib": generator.torch.cuda.max_memory_allocated()/2**30}
+              "peak_cuda_gib_per_gpu": {
+                  str(i): generator.torch.cuda.max_memory_allocated(i)/2**30
+                  for i in range(a.num_gpus)}}
     if a.split == "train":
         for metric in ("canonical_state_match", "exact_call_sequence_match"):
             report[metric] = sum(r[metric] for r in summaries)/len(rows)
