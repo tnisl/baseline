@@ -2,7 +2,7 @@
 
 Notebook: [LifeMate Two Node Planner Qwen35](https://www.kaggle.com/code/cymeu4l0t/lifemate-two-node-planner-qwen35).
 
-The configurable GPU/batch update is currently in the repository's kaggle_planner.ipynb. Kaggle's last published version7 predates these options; the Kaggle connector was unavailable for this update. Import the repository notebook into Kaggle to use NUM_GPU, MICRO_BATCH and GRAD_ACC.
+Kaggle version10 includes NUM_GPU, MICRO_BATCH and GRAD_ACC. Its source cells were verified against the repository notebook after QuickSave; no training was launched.
 
 Select **GPU T4 ×2**, enable Internet, and attach the private competition dataset. The standalone notebook embeds source and the fixed split of 200 validation IDs; it does not embed competition data. It is saved for manual execution, not launched automatically.
 

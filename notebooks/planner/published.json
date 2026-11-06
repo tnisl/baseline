@@ -1,7 +1,7 @@
 {
   "url": "https://www.kaggle.com/code/cymeu4l0t/lifemate-two-node-planner-qwen35",
   "kernel_id": 142956220,
-  "version_number": 7,
+  "version_number": 10,
   "execution_type": "QuickSave",
   "is_private": true,
   "machine_shape": "NvidiaTeslaT4",
@@ -15,6 +15,6 @@
   "profiled_optimizer_step": 2,
   "profiler_rank": 0,
   "gpu_kernel_execution_verified": false,
-  "local_update_pending": true,
-  "local_update_note": "NUM_GPU, MICRO_BATCH, GRAD_ACC added locally; Kaggle connector unavailable. Published version7 does not include this update."
+  "local_update_pending": false,
+  "configurable_gpu_batch": true
 }
