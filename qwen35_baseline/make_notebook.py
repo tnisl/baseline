@@ -45,7 +45,7 @@ MAX_NUM_SEQS = 2  # vLLM scheduler; batch 4 được xếp hàng nếu cần
 MAX_NUM_BATCHED_TOKENS = 1024  # token prefill mỗi lượt, không phải giới hạn context
 NUM_GPUS = 2
 BATCH_SIZE = 4     # số mẫu tối đa đang hoạt động trong mỗi lượt generate
-RUN_NAME = "qwen35_smoke_vllm_examples_01"  # đổi tên khi chạy lại; không reset môi trường ngầm
+RUN_NAME = "qwen35_smoke_vllm_responses_01"  # đổi tên khi chạy lại; không reset môi trường ngầm
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 WORK = Path("/kaggle/working/qwen35_baseline")
 WORK.mkdir(exist_ok=True)
@@ -168,7 +168,7 @@ display(FileLink(str(Path(archive).relative_to("/kaggle/working"))))
             "Chưa chạy GPU trước khi lưu notebook. Giữ notebook/output riêng tư vì có dữ liệu cuộc thi.\n").splitlines(True)
         config = "".join(notebook["cells"][1]["source"])
         config = config.replace('PROFILE = "smoke"', 'PROFILE = "random200"')
-        config = config.replace('RUN_NAME = "qwen35_smoke_vllm_examples_01"', 'RUN_NAME = "qwen35_random100_vllm_examples_01"')
+        config = config.replace('RUN_NAME = "qwen35_smoke_vllm_responses_01"', 'RUN_NAME = "qwen35_random100_vllm_responses_01"')
         # Preserve the user's Kaggle v19 sample count, input budget, and batch size.
         config = config.replace('SAMPLE_SIZE = 200', 'SAMPLE_SIZE = 100')
         notebook["cells"][1]["source"] = config.splitlines(True)
