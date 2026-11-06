@@ -21,7 +21,7 @@ BATCH_SIZE=4 mặc định. Mỗi lượt generate nhận tối đa 4 prompt, le
 attention mask; mỗi mẫu có history, schema tool và ToolEnv riêng. Mẫu dừng/lỗi
 được bỏ khỏi lượt tiếp theo, batch cuối có thể nhỏ hơn 4. Không ghép transcript
 thành một hội thoại. EOS và giới hạn input được kiểm riêng từng mẫu.
-RUN_NAME mặc định là qwen35_random200_2gpu_batch4_01, không ghi đè output cũ.
+RUN_NAME mặc định là qwen35_random200_2gpu_batch4_policy_01, không ghi đè output cũ.
 Đổi SEED để lấy tập khác; selected_ids.txt, selection.json lưu ID và SHA256 dữ liệu.
 Mọi mẫu lỗi vẫn nằm trong mẫu số 200; không loại mẫu theo kết quả model.
 
@@ -66,6 +66,8 @@ python qwen35_baseline/run.py --data-root ../train+public_test --split train --i
 ## Contract và đánh giá
 
 - Schema từ catalog đúng split, lọc installed_apps; sys.ask_missing_info luôn có.
+- Mô tả tool kèm Kind (read/write/meta) và Returns khi catalog có; giữ nguyên
+  parameters, gồm required, x-one-of, x-ref, x-match, enum, format và các giới hạn.
 - History được đưa vào prompt nhưng không replay. Chỉ một ToolEnv/mẫu.
 - Không đưa label, final_state hoặc file state vào prompt. State train chỉ đọc
   sau inference để tính diagnostic hash của state gold đầy đủ.
@@ -90,6 +92,30 @@ python qwen35_baseline/run.py --data-root ../train+public_test --split train --i
 - Output mới phải dùng thư mục mới. Baseline không tự resume và không reset mẫu.
 - Artifact gồm config.json, submission.jsonl, traces.jsonl, report.json.
   Không commit dữ liệu cuộc thi, transcript, prompt thực tế hoặc model weights.
+
+## Quy tắc nghiệp vụ trong prompt
+
+SYSTEM trong agent.py hướng dẫn dùng history đã thực thi để phân giải tham chiếu,
+tận dụng ID đã biết và áp dụng sửa lời vào đúng tác vụ. Yêu cầu lặp lại rõ ràng
+của user vẫn là công việc mới. Các tác vụ phụ thuộc được thực hiện sau khi có
+evidence; điều kiện sai chỉ bỏ nhánh tương ứng. Lọc đủ điều kiện/ngoại lệ, chọn
+đúng đối tượng theo thuộc tính và so sánh dữ liệu thực thay vì lấy phần tử đầu.
+
+Ngày giờ tương đối dựa trên context; cộng/trừ qua ngày, giữ thời lượng khi dời
+lịch nếu user không đổi thời lượng. Không đoán giờ bắt buộc từ ngày đơn thuần.
+x-one-of cần đủ ít nhất một nhóm bên cạnh required; x-ref dùng ID đã biết hoặc
+lookup. Giữ kiểu dữ liệu, số điện thoại dạng chuỗi, ý nghĩa nội dung và các field
+không được yêu cầu sửa; không bịa giá trị optional hoặc default.
+
+ok=true chưa có nghĩa hành động thành công: đọc done, message và dữ liệu trả về.
+Không xem danh sách rỗng hay done=false là thành công, không lặp nguyên một write
+thất bại. Làm xong phần độc lập được hỗ trợ trước khi gọi missing-info kết thúc
+episode; phân biệt thiếu tham số với capability không được hỗ trợ.
+
+Đây là chỉ dẫn cho model, không phải bộ luật tự thi hành. Tests kiểm tra schema,
+metadata và observation được truyền đúng; cần chạy validation để đo mức model
+tuân thủ và tác động lên score/hash accuracy. Prompt dài hơn vẫn chịu MAX_INPUT
+như trước, không tự truncate hay tăng budget.
 
 ## Kiểm tra và tạo lại notebook
 

@@ -1,7 +1,7 @@
 import copy
 import json
 import unittest
-from agent import messages_for, parse_action, run_batch, run_episode
+from agent import messages_for, native_tools, parse_action, run_batch, run_episode, tools_for
 
 CATALOG = {"apps": [{"tools": [
     {"name": "contacts.search", "description": "Find", "parameters": {
@@ -39,6 +39,62 @@ class Env:
         return "hash"
 
 class AgentTests(unittest.TestCase):
+    def test_tool_metadata_and_complete_schema_survive_native_conversion(self):
+        catalog = copy.deepcopy(CATALOG)
+        tool = {"name": "new_app.dispatch", "kind": "write", "returns": "receipt_id",
+                "description": "Dispatch to an observed target.", "parameters": {
+                    "type": "object", "required": ["amount"],
+                    "x-one-of": [["target_id"], ["phone"]], "properties": {
+                        "target_id": {"type": "string", "x-ref": "new_app.targets"},
+                        "phone": {"type": "string"},
+                        "amount": {"type": "integer", "exclusiveMinimum": 0},
+                        "note": {"type": "string", "x-match": "fuzzy"},
+                        "date": {"type": "string", "format": "date"},
+                        "tags": {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}}}}}
+        catalog["apps"].append({"tools": [tool]})
+        item = copy.deepcopy(ITEM)
+        item["context"]["installed_apps"] = {"new_app": {"tools": [tool["name"]]}}
+        before = copy.deepcopy(catalog)
+        functions = {t["function"]["name"]: t["function"]
+                     for t in native_tools(tools_for(item, catalog))}
+        self.assertEqual(set(functions), {tool["name"], "sys.ask_missing_info"})
+        actual = functions[tool["name"]]
+        self.assertEqual(actual["parameters"], tool["parameters"])
+        self.assertEqual(actual["description"],
+                         tool["description"] + "\nKind: write\nReturns: receipt_id")
+        self.assertEqual(set(actual), {"name", "description", "parameters"})
+        self.assertEqual(functions["sys.ask_missing_info"]["description"], "Ask")
+        self.assertEqual(catalog, before)
+
+    def test_independent_action_then_empty_lookup_then_terminal_missing_info(self):
+        item = copy.deepcopy(ITEM)
+        item["audio_text"] = "Nhắn Nam xin chào, rồi gọi Minh."
+        item["history"] = [{"role": "assistant", "text": "Nam có ID known_nam."}]
+        empty = {"ok": True, "done": False, "contacts": [], "message": "No match"}
+        class EmptyLookupEnv(Env):
+            def call(self, name, args):
+                super().call(name, args)
+                return copy.deepcopy(empty) if name == "contacts.search" else {"ok": True}
+        env = EmptyLookupEnv()
+        def generate(messages, tools):
+            if not env.calls:
+                self.assertIn("known_nam", str(messages))
+                return xml("sms.send", {"contact_id": "known_nam", "content": "xin chào"})
+            if len(env.calls) == 1:
+                return xml("contacts.search", {"query": "Minh"})
+            self.assertEqual(json.loads(messages[-1]["content"]), empty)
+            return xml("sys.ask_missing_info", {"tool_name": "phone.call", "params": ["contact_id"]})
+        # Supply the future target tool without requiring any hardcoded app list.
+        catalog = copy.deepcopy(CATALOG)
+        catalog["apps"].append({"tools": [{"name": "phone.call", "description": "Call",
+            "parameters": {"type": "object", "properties": {"contact_id": {"type": "string"}}}}]})
+        item["context"]["installed_apps"]["phone"] = {"tools": ["phone.call"]}
+        prediction, detail = run_episode(item, catalog, env, generate)
+        self.assertEqual([call["name"] for call in prediction["tool_calls"]],
+                         ["sms.send", "contacts.search", "sys.ask_missing_info"])
+        self.assertEqual(detail["status"], "missing_info")
+        self.assertEqual(detail["trace"][1]["observation"], empty)
+
     def test_observation_drives_next_action(self):
         env = Env()
         def generate(messages, tools):
