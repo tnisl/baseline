@@ -16,6 +16,7 @@ def build(random200=False):
     add("markdown", """# LifeMate — Qwen3.5-4B baseline
 Một model, native tool calling, non-thinking, greedy FP16. Không fine-tune.
 Bật Internet và GPU T4 x2. Một model FP16 được chia layer lên hai GPU.
+Batch inference 4 transcript; mỗi mẫu giữ ToolEnv và history riêng.
 Gắn dataset cuộc thi riêng tư, dạng thư mục hoặc ZIP. ASR cần thêm thư mục
 encoder.onnx / decoder.onnx / joiner.onnx / tokens.txt do BTC cung cấp.
 Chạy smoke trước. Chất lượng và VRAM trên Kaggle cần được kiểm chứng bằng lần chạy này.
@@ -36,7 +37,8 @@ MAX_INPUT = 16384
 MAX_NEW_TOKENS = 768
 MAX_STEPS = 8
 NUM_GPUS = 2
-RUN_NAME = "qwen35_smoke_2gpu_01"  # đổi tên khi chạy lại; không reset môi trường ngầm
+BATCH_SIZE = 4     # tối đa 4 mẫu đang hoạt động trong mỗi lượt generate
+RUN_NAME = "qwen35_smoke_2gpu_batch4_01"  # đổi tên khi chạy lại; không reset môi trường ngầm
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 WORK = Path("/kaggle/working/qwen35_baseline")
 WORK.mkdir(exist_ok=True)
@@ -117,7 +119,8 @@ if MODE == "asr":
 command = [sys.executable, "-B", str(WORK/"run.py"), *common,
            "--mode", MODE, *transcript_args, "--model", MODEL, "--revision", REVISION,
            "--max-input", str(MAX_INPUT), "--max-new-tokens", str(MAX_NEW_TOKENS),
-           "--max-steps", str(MAX_STEPS), "--num-gpus", str(NUM_GPUS), "--output", str(output)]
+           "--max-steps", str(MAX_STEPS), "--num-gpus", str(NUM_GPUS),
+           "--batch-size", str(BATCH_SIZE), "--output", str(output)]
 subprocess.run(command, check=True)
 ''')
     add("code", '''import shutil
@@ -146,13 +149,14 @@ display(FileLink(str(Path(archive).relative_to("/kaggle/working"))))
         notebook["cells"][0]["source"] = ("# Qwen3.5-4B — Random 200 / transcript only\n\n"
             "Chọn ngẫu nhiên 200 mẫu từ toàn bộ train với seed=42. Dùng audio_text cho user hiện tại và history; không chạy ASR, không fine-tune.\n"
             "Bật Internet và GPU T4 x2, rồi Run All. Một model FP16 chia layer trên hai GPU; không tạo hai bản model. Dataset riêng tư cymeu4l0t/zaloai-dataset được tìm trong Input hoặc nạp bằng KaggleHub nếu chưa gắn.\n"
+            "BATCH_SIZE=4: generate cùng lúc tối đa 4 transcript, left padding; mỗi mẫu có history và ToolEnv riêng. Mẫu đã dừng được bỏ khỏi các lượt sau; batch cuối có thể nhỏ hơn 4. VRAM batch 4 chưa được kiểm chứng trên GPU.\n"
             "Kết quả: score_100 (F1 gated by state hash), hash_accuracy, tool_call_f1, statuses và trace từng mẫu.\n"
             "Scorer local theo công thức công bố; fuzzy tokenizer có thể khác BTC. Không áp latency gate.\n"
             "Danh sách ID, seed và SHA256 dataset được lưu trong artifacts. Mẫu lỗi vẫn tính trong mẫu số 200.\n"
             "Chưa chạy GPU trước khi lưu notebook. Giữ notebook/output riêng tư vì có dữ liệu cuộc thi.\n").splitlines(True)
         config = "".join(notebook["cells"][1]["source"])
         config = config.replace('PROFILE = "smoke"', 'PROFILE = "random200"')
-        config = config.replace('RUN_NAME = "qwen35_smoke_2gpu_01"', 'RUN_NAME = "qwen35_random200_2gpu_01"')
+        config = config.replace('RUN_NAME = "qwen35_smoke_2gpu_batch4_01"', 'RUN_NAME = "qwen35_random200_2gpu_batch4_01"')
         # Preserve the input budget selected in the user's current Kaggle v6.
         config = config.replace('MAX_INPUT = 16384', 'MAX_INPUT = 8192')
         notebook["cells"][1]["source"] = config.splitlines(True)

@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import time
 
-from agent import messages_for, run_episode
+from agent import messages_for, run_batch
 from scoring import score
 
 class HFGenerator:
@@ -21,6 +21,9 @@ class HFGenerator:
         self.torch = torch
         self.num_gpus = num_gpus
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        self.tokenizer.padding_side = "left"
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         placement = {"device_map": {"": 0}} if num_gpus == 1 else {
             "device_map": "balanced", "max_memory": {0: "10GiB", 1: "10GiB"}}
         self.model = AutoModelForImageTextToText.from_pretrained(
@@ -40,27 +43,63 @@ class HFGenerator:
         self.resolved_revision = getattr(self.model.config, "_commit_hash", None)
 
     def __call__(self, messages, tools):
-        prompt = self.tokenizer.apply_chat_template(
-            messages, tools=tools, tokenize=False,
-            add_generation_prompt=True, enable_thinking=False)
-        inputs = self.tokenizer(prompt, add_special_tokens=False, return_tensors="pt")
+        result = self.generate_batch([(messages, tools)])[0]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def generate_batch(self, requests):
+        results = [None] * len(requests)
+        encoded, indices = [], []
+        for i, (messages, tools) in enumerate(requests):
+            try:
+                prompt = self.tokenizer.apply_chat_template(
+                    messages, tools=tools, tokenize=False,
+                    add_generation_prompt=True, enable_thinking=False)
+                tokens = self.tokenizer(prompt, add_special_tokens=False)
+                length = len(tokens["input_ids"])
+                if length > self.max_input:
+                    raise ValueError(f"Input {length} tokens exceeds {self.max_input}; no truncation")
+                encoded.append(tokens)
+                indices.append(i)
+            except Exception as exc:
+                results[i] = exc
+        if not encoded:
+            return results
+        try:
+            decoded = self._generate_encoded(encoded)
+            for i, result in zip(indices, decoded, strict=True):
+                results[i] = result
+        except Exception as exc:
+            for i in indices:
+                results[i] = exc.with_traceback(None)
+        return results
+
+    def _generate_encoded(self, encoded):
+        inputs = self.tokenizer.pad(encoded, padding=True, return_tensors="pt")
         length = inputs["input_ids"].shape[-1]
-        if length > self.max_input:
-            raise ValueError(f"Input {length} tokens exceeds {self.max_input}; no truncation")
         inputs = {k: v.to(self.input_device) for k, v in inputs.items()}
         started = time.monotonic()
         with self.torch.inference_mode():
             output = self.model.generate(
                 **inputs, do_sample=False, max_new_tokens=self.max_new_tokens,
-                pad_token_id=self.tokenizer.eos_token_id, logits_to_keep=1)
-        tokens = output[0, length:].tolist()
+                pad_token_id=self.tokenizer.pad_token_id, logits_to_keep=1)
+        rows = output[:, length:].tolist()
         eos = self.model.generation_config.eos_token_id
         eos = [eos] if isinstance(eos, int) else (eos or [])
-        self.stats.append({"input_tokens": length, "output_tokens": len(tokens),
+        results, output_lengths = [], []
+        for tokens in rows:
+            stop = next((i + 1 for i, token in enumerate(tokens) if token in eos), None)
+            output_lengths.append(stop or len(tokens))
+            if stop is None:
+                results.append(ValueError("Generation did not reach EOS; no truncated action executed"))
+            else:
+                results.append(self.tokenizer.decode(tokens[:stop], skip_special_tokens=True))
+        self.stats.append({"batch_size": len(encoded),
+                           "input_tokens": [len(row["input_ids"]) for row in encoded],
+                           "padded_input_tokens": length, "output_tokens": output_lengths,
                            "seconds": time.monotonic() - started})
-        if not tokens or tokens[-1] not in eos:
-            raise ValueError("Generation did not reach EOS; no truncated action executed")
-        return self.tokenizer.decode(tokens, skip_special_tokens=True)
+        return results
 
 def read_rows(root, split, ids=None, limit=None):
     rows = [json.loads(line) for line in (root/split/f"{split}.jsonl").read_text().splitlines()
@@ -87,14 +126,15 @@ def main():
     p.add_argument("--max-new-tokens", type=int, default=768)
     p.add_argument("--max-steps", type=int, default=8)
     p.add_argument("--num-gpus", type=int, choices=[1, 2], default=2)
+    p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args()
     if a.split != "train" and a.mode == "oracle":
         p.error("Oracle transcripts exist only in train; public_test requires --mode asr")
     if a.mode == "asr" and not a.transcripts:
         p.error("--mode asr requires --transcripts")
-    if min(a.max_input, a.max_new_tokens, a.max_steps) < 1 or (a.limit is not None and a.limit < 1):
-        p.error("Token, step and sample budgets must be positive")
+    if min(a.max_input, a.max_new_tokens, a.max_steps, a.batch_size) < 1 or (a.limit is not None and a.limit < 1):
+        p.error("Token, step, batch and sample budgets must be positive")
     root = a.data_root.resolve()
     rows = read_rows(root, a.split, a.ids, a.limit)
     if not rows:
@@ -127,31 +167,32 @@ def main():
     started = time.monotonic()
     with (a.output/"submission.jsonl").open("w") as submissions, \
          (a.output/"traces.jsonl").open("w") as traces:
-        for i, row in enumerate(rows, 1):
-            tick = time.monotonic()
-            env = ToolEnv(a.split, row["id"], root=root)
-            prediction, detail = run_episode(
-                row, catalog, env, generator, a.mode, cache, a.max_steps)
-            # Labels are inspected only AFTER inference. Never supplied to the agent.
-            if a.split == "train":
-                initial = json.loads((root/a.split/f"{a.split}_environment"/row["id"]/"state.json").read_text())
-                initial.update(row["label"]["final_state"])
-                reference = {"id": row["id"], "tool_calls": row["label"]["tool_calls"],
-                             "state_hash": state_hash(initial)}
-                metrics = score(prediction, reference, scoring_catalog)
-                detail.update({key: metrics[key] for key in
-                               ("score", "hash_match", "tool_f1", "matched", "pred_calls", "gold_calls")})
-                detail["canonical_state_match"] = metrics["hash_match"]
-                detail["exact_call_sequence_match"] = prediction["tool_calls"] == row["label"]["tool_calls"]
-            detail["seconds"] = time.monotonic() - tick
-            submissions.write(json.dumps(prediction, ensure_ascii=False) + "\n")
-            traces.write(json.dumps(detail, ensure_ascii=False) + "\n")
-            submissions.flush()
-            traces.flush()
-            summaries.append({k: v for k, v in detail.items() if k != "trace"})
-            print(json.dumps({"completed": i, "total": len(rows), **summaries[-1]}), flush=True)
+        for offset in range(0, len(rows), a.batch_size):
+            batch = rows[offset:offset + a.batch_size]
+            envs = [ToolEnv(a.split, row["id"], root=root) for row in batch]
+            results = run_batch(batch, catalog, envs, generator.generate_batch,
+                                a.mode, cache, a.max_steps)
+            for i, (row, (prediction, detail)) in enumerate(zip(batch, results), offset + 1):
+                # Labels are inspected only AFTER inference. Never supplied to the agent.
+                if a.split == "train":
+                    initial = json.loads((root/a.split/f"{a.split}_environment"/row["id"]/"state.json").read_text())
+                    initial.update(row["label"]["final_state"])
+                    reference = {"id": row["id"], "tool_calls": row["label"]["tool_calls"],
+                                 "state_hash": state_hash(initial)}
+                    metrics = score(prediction, reference, scoring_catalog)
+                    detail.update({key: metrics[key] for key in
+                                   ("score", "hash_match", "tool_f1", "matched", "pred_calls", "gold_calls")})
+                    detail["canonical_state_match"] = metrics["hash_match"]
+                    detail["exact_call_sequence_match"] = prediction["tool_calls"] == row["label"]["tool_calls"]
+                submissions.write(json.dumps(prediction, ensure_ascii=False) + "\n")
+                traces.write(json.dumps(detail, ensure_ascii=False) + "\n")
+                submissions.flush()
+                traces.flush()
+                summaries.append({k: v for k, v in detail.items() if k != "trace"})
+                print(json.dumps({"completed": i, "total": len(rows), **summaries[-1]}), flush=True)
     from collections import Counter
-    report = {"samples": len(rows), "mode": a.mode, "seconds": time.monotonic()-started,
+    report = {"samples": len(rows), "mode": a.mode, "batch_size": a.batch_size,
+              "seconds": time.monotonic()-started,
               "statuses": dict(Counter(r["status"] for r in summaries)),
               "note": "Local approximation of published hash-gated F1; fuzzy tokenization may differ from BTC. No latency gate; model load and ASR excluded.",
               "generation": generator.stats,

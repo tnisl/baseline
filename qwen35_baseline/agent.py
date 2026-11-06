@@ -2,6 +2,7 @@
 import copy
 import json
 import re
+import time
 
 SYSTEM = """You are LifeMate, a Vietnamese personal assistant.
 Execute only the current user request. Earlier conversation is evidence, not new work.
@@ -74,8 +75,17 @@ def messages_for(item, mode="oracle", cache=None):
 def parse_action(text, tools):
     """Parse Qwen3.5 native XML. No repairs or guesses of malformed arguments."""
     text = text.strip()
+    # Non-thinking prompting does not guarantee the model omits this wrapper.
+    # Discard only one complete leading block; never execute calls inside it.
+    if text.startswith("<think>"):
+        thinking = re.match(r"<think>(.*?)</think>\s*", text, re.S)
+        if not thinking or "<think>" in thinking.group(1):
+            raise ValueError("Malformed or incomplete thinking block")
+        text = text[thinking.end():].strip()
+        if not text:
+            raise ValueError("Empty answer after thinking block")
     if "<think>" in text or "</think>" in text:
-        raise ValueError("Unexpected thinking output in non-thinking mode")
+        raise ValueError("Unexpected thinking marker outside leading block")
     if "<tool_call>" not in text:
         if any(tag in text for tag in ("tool_call", "<function=", "<parameter=")):
             raise ValueError("Malformed tool call")
@@ -107,7 +117,8 @@ def parse_action(text, tools):
         args[key] = value if kind == "string" else json.loads(value)
     return {"name": name, "arguments": args}
 
-def run_episode(item, catalog, env, generate, mode="oracle", cache=None, max_steps=8):
+def _episode(item, catalog, env, mode, cache, max_steps):
+    started = time.monotonic()
     tools = tools_for(item, catalog)
     messages = messages_for(item, mode, cache)
     trace, status = [], "step_limit"
@@ -116,7 +127,9 @@ def run_episode(item, catalog, env, generate, mode="oracle", cache=None, max_ste
         entry = {"step": step}
         trace.append(entry)
         try:
-            text = generate(messages, native_tools(tools))
+            text = yield messages, native_tools(tools)
+            if isinstance(text, Exception):
+                raise text
             entry["raw"] = text
             call = parse_action(text, tools)
             if call is None:
@@ -138,4 +151,33 @@ def run_episode(item, catalog, env, generate, mode="oracle", cache=None, max_ste
             break
     return {"id": item["id"], "tool_calls": env.get_tool_calls(),
             "state_hash": env.get_state_hash()}, {
-                "id": item["id"], "status": status, "error": error, "trace": trace}
+                "id": item["id"], "status": status, "error": error, "trace": trace,
+                "seconds": time.monotonic() - started}
+
+def run_batch(items, catalog, envs, generate_batch, mode="oracle", cache=None, max_steps=8):
+    """Advance independent episodes together, removing finished rows each round."""
+    results = [None] * len(items)
+    active = {}
+    for i, (item, env) in enumerate(zip(items, envs, strict=True)):
+        episode = _episode(item, catalog, env, mode, cache, max_steps)
+        active[i] = (episode, next(episode))
+    while active:
+        try:
+            outputs = generate_batch([request for episode, request in active.values()])
+            if len(outputs) != len(active):
+                raise ValueError("Generator returned the wrong number of batch outputs")
+        except Exception as exc:
+            outputs = [exc] * len(active)
+        for i, output in zip(list(active), outputs):
+            episode, request = active[i]
+            try:
+                active[i] = (episode, episode.send(output))
+            except StopIteration as done:
+                results[i] = done.value
+                del active[i]
+    return results
+
+def run_episode(item, catalog, env, generate, mode="oracle", cache=None, max_steps=8):
+    return run_batch([item], catalog, [env],
+                     lambda requests: [generate(*request) for request in requests],
+                     mode, cache, max_steps)[0]

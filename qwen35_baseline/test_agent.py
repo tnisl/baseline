@@ -1,7 +1,7 @@
 import copy
 import json
 import unittest
-from agent import messages_for, parse_action, run_episode
+from agent import messages_for, parse_action, run_batch, run_episode
 
 CATALOG = {"apps": [{"tools": [
     {"name": "contacts.search", "description": "Find", "parameters": {
@@ -94,12 +94,113 @@ class AgentTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 parse_action(raw, TOOLS)
 
+    def test_complete_leading_thinking_before_call_or_answer(self):
+        call = xml("contacts.search", {"query": "Nam"})
+        expected = {"name": "contacts.search", "arguments": {"query": "Nam"}}
+        for block in ("<think>\n\n</think>", "<think>Chọn công cụ.\n</think>"):
+            with self.subTest(block=block):
+                self.assertEqual(parse_action(block + "\n" + call, TOOLS), expected)
+                self.assertIsNone(parse_action(block + "\nĐã xong.", TOOLS))
+
+    def test_calls_inside_thinking_are_never_executed(self):
+        hidden = xml("sms.send", {"contact_id": "invented", "content": "hi"})
+        visible = xml("contacts.search", {"query": "Nam"})
+        env = Env()
+        outputs = iter(["<think>" + hidden + "</think>\n" + visible, "Đã xong."])
+        pred, detail = run_episode(ITEM, CATALOG, env, lambda m, t: next(outputs))
+        self.assertEqual(pred["tool_calls"], [
+            {"name": "contacts.search", "arguments": {"query": "Nam"}}])
+        self.assertEqual(detail["status"], "stopped")
+        self.assertIn(hidden, detail["trace"][0]["raw"])
+
+    def test_reject_incomplete_nested_or_misplaced_thinking(self):
+        call = xml("contacts.search", {"query": "Nam"})
+        for raw in ("<think>" + call, "</think>" + call,
+                    "<think>outer<think>inner</think></think>" + call,
+                    "<think></think><think></think>" + call,
+                    "<think></think>", "prefix<think></think>" + call,
+                    call + "<think></think>"):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                parse_action(raw, TOOLS)
+
+    def test_thinking_does_not_relax_tool_validation(self):
+        call = xml("contacts.search", {"query": "Nam"})
+        for raw in (call + call, call[:-4], call + "suffix", xml("unknown.tool", {})):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                parse_action("<think>Chọn công cụ.</think>\n" + raw, TOOLS)
+
     def test_step_budget_preserves_executed_calls(self):
         env = Env()
         pred, detail = run_episode(ITEM, CATALOG, env, lambda m, t: xml(
             "contacts.search", {"query": "Nam"}), max_steps=2)
         self.assertEqual(len(pred["tool_calls"]), 2)
         self.assertEqual(detail["status"], "step_limit")
+
+    def test_batch_shrinks_and_keeps_histories_tools_and_environments_separate(self):
+        items = [copy.deepcopy(ITEM) for _ in range(4)]
+        envs = [Env() for _ in items]
+        for i, item in enumerate(items):
+            item.update(id=f"row_{i}", audio_text=f"request_{i}")
+        del items[3]["context"]["installed_apps"]["sms"]
+        batch_sizes = []
+        def generate(requests):
+            batch_sizes.append(len(requests))
+            outputs = []
+            for messages, tools in requests:
+                user = next(m["content"] for m in messages if m["role"] == "user")
+                i = int(user.removeprefix("request_"))
+                self.assertNotIn("label", str(messages))
+                names = {t["function"]["name"] for t in tools}
+                self.assertEqual("sms.send" in names, i != 3)
+                if i == 0:
+                    output = "Đã xong."
+                elif i == 2:
+                    output = xml("sys.ask_missing_info", {
+                        "tool_name": "sms.send", "params": ["contact_id"]})
+                elif not envs[i].calls:
+                    output = xml("contacts.search", {"query": user})
+                elif i == 3:
+                    output = ValueError("row-specific generation failure")
+                elif len(envs[i].calls) == 1:
+                    self.assertEqual(json.loads(messages[-1]["content"])["contacts"][0]["id"],
+                                     "observed_42")
+                    self.assertEqual(envs[i].calls[0]["arguments"]["query"], user)
+                    self.assertNotIn("request_3", str(messages))
+                    output = xml("sms.send", {"contact_id": "observed_42", "content": "hi"})
+                else:
+                    output = "Đã gửi."
+                outputs.append(output)
+            return outputs
+        results = run_batch(items, CATALOG, envs, generate)
+        self.assertEqual(batch_sizes, [4, 2, 1])
+        self.assertEqual([p["id"] for p, d in results], [item["id"] for item in items])
+        self.assertEqual([d["status"] for p, d in results],
+                         ["stopped", "stopped", "missing_info", "error"])
+        self.assertEqual([len(p["tool_calls"]) for p, d in results], [0, 2, 1, 1])
+        self.assertIn("row-specific", results[3][1]["error"])
+
+    def test_batch_generation_failure_preserves_previously_executed_calls(self):
+        envs = [Env(), Env()]
+        def generate(requests):
+            if not envs[0].calls:
+                return [xml("contacts.search", {"query": "Nam"})] * len(requests)
+            raise RuntimeError("batch failure")
+        results = run_batch([ITEM, ITEM], CATALOG, envs, generate)
+        for prediction, detail in results:
+            self.assertEqual(len(prediction["tool_calls"]), 1)
+            self.assertEqual(detail["status"], "error")
+            self.assertIn("batch failure", detail["error"])
+
+    def test_partial_batch_and_per_episode_step_budget(self):
+        env = Env()
+        sizes = []
+        def generate(requests):
+            sizes.append(len(requests))
+            return [xml("contacts.search", {"query": "Nam"})] * len(requests)
+        results = run_batch([ITEM], CATALOG, [env], generate, max_steps=2)
+        self.assertEqual(sizes, [1, 1])
+        self.assertEqual(len(results[0][0]["tool_calls"]), 2)
+        self.assertEqual(results[0][1]["status"], "step_limit")
 
 if __name__ == "__main__":
     unittest.main()

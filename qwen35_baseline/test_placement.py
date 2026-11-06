@@ -16,11 +16,14 @@ class PlacementTests(unittest.TestCase):
         self.model.hf_device_map = {"layers.0": 0, "layers.16": 1}
         self.model.get_input_embeddings.return_value.weight.device = "cuda:1"
         self.model.generation_config.eos_token_id = 99
-        self.model.generate.return_value.__getitem__.return_value.tolist.return_value = [99]
+        self.model.generate.return_value.__getitem__.return_value.tolist.return_value = [[99]]
         self.tokens = MagicMock()
         self.tokens.shape = (1, 2)
         self.tokenizer = MagicMock()
-        self.tokenizer.return_value = {"input_ids": self.tokens}
+        self.mask = MagicMock()
+        self.tokenizer.return_value = {"input_ids": [7, 8], "attention_mask": [1, 1]}
+        self.tokenizer.pad.return_value = {"input_ids": self.tokens, "attention_mask": self.mask}
+        self.tokenizer.pad_token_id = 0
         self.tokenizer.decode.return_value = "Done"
         self.factory = MagicMock()
         self.factory.from_pretrained.return_value = self.model
@@ -44,8 +47,47 @@ class PlacementTests(unittest.TestCase):
         self.assertEqual(kwargs["dtype"], "float16")
         self.assertEqual(generator([], []), "Done")
         self.tokens.to.assert_called_once_with("cuda:1")
+        self.mask.to.assert_called_once_with("cuda:1")
+        self.assertEqual(self.tokenizer.padding_side, "left")
         generator.tokenizer.apply_chat_template.assert_called_once_with(
             [], tools=[], tokenize=False, add_generation_prompt=True, enable_thinking=False)
+
+    def test_batch_generates_once_and_trims_each_row_at_first_eos(self):
+        generator = self.load()
+        rows = [[10, 99, 0], [11, 12, 99], [13, 14, 15], [99, 0, 0]]
+        self.model.generate.return_value.__getitem__.return_value.tolist.return_value = rows
+        self.tokenizer.decode.side_effect = lambda tokens, **kwargs: str(tokens)
+        results = generator.generate_batch([([], [])] * 4)
+        self.model.generate.assert_called_once()
+        self.assertEqual(results[:2], ["[10, 99]", "[11, 12, 99]"])
+        self.assertIsInstance(results[2], ValueError)
+        self.assertEqual(results[3], "[99]")
+        self.assertEqual(generator.stats[0]["batch_size"], 4)
+        self.assertEqual(generator.stats[0]["output_tokens"], [2, 3, 3, 1])
+        self.tokenizer.pad.assert_called_once_with(
+            [self.tokenizer.return_value] * 4, padding=True, return_tensors="pt")
+        self.model.generate.return_value.__getitem__.assert_called_once_with(
+            (slice(None), slice(2, None)))
+
+    def test_overlong_prompt_fails_only_its_own_row(self):
+        generator = self.load()
+        short = {"input_ids": [7, 8], "attention_mask": [1, 1]}
+        self.tokenizer.side_effect = [short, {"input_ids": [1] * 8193}, short]
+        self.model.generate.return_value.__getitem__.return_value.tolist.return_value = [[99], [99]]
+        results = generator.generate_batch([([], [])] * 3)
+        self.assertEqual(results[0], "Done")
+        self.assertIsInstance(results[1], ValueError)
+        self.assertIn("8193", str(results[1]))
+        self.assertEqual(results[2], "Done")
+        self.tokenizer.pad.assert_called_once_with([short, short], padding=True, return_tensors="pt")
+
+    def test_shared_cuda_failure_is_reported_for_every_affected_row(self):
+        generator = self.load()
+        self.model.generate.side_effect = RuntimeError("CUDA out of memory")
+        results = generator.generate_batch([([], [])] * 4)
+        self.assertEqual(len(results), 4)
+        self.assertTrue(all(isinstance(result, RuntimeError) for result in results))
+        self.model.generate.assert_called_once()
 
     def test_requires_two_visible_gpus_before_loading(self):
         self.cuda.device_count = lambda: 1

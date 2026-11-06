@@ -17,7 +17,11 @@ NUM_GPUS=2 mặc định. Model dùng device_map="balanced", ngân sách trọng
 trên cả GPU0/GPU1, không offload CPU/disk. Đây là model parallel, không phải
 hai replica hoặc tensor parallel; không hứa tăng tốc gấp đôi.
 Giữ MAX_INPUT=8192 từ cấu hình Kaggle hiện tại; không tự truncate prompt.
-RUN_NAME mặc định mới là qwen35_random200_2gpu_01, không ghi đè output cũ.
+BATCH_SIZE=4 mặc định. Mỗi lượt generate nhận tối đa 4 prompt, left padding kèm
+attention mask; mỗi mẫu có history, schema tool và ToolEnv riêng. Mẫu dừng/lỗi
+được bỏ khỏi lượt tiếp theo, batch cuối có thể nhỏ hơn 4. Không ghép transcript
+thành một hội thoại. EOS và giới hạn input được kiểm riêng từng mẫu.
+RUN_NAME mặc định là qwen35_random200_2gpu_batch4_01, không ghi đè output cũ.
 Đổi SEED để lấy tập khác; selected_ids.txt, selection.json lưu ID và SHA256 dữ liệu.
 Mọi mẫu lỗi vẫn nằm trong mẫu số 200; không loại mẫu theo kết quả model.
 
@@ -34,13 +38,19 @@ Gắn dataset cuộc thi riêng tư (thư mục hoặc train+public_test.zip).
 ASR_MODEL_DIR chứa encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt của BTC.
 ASR CPU sherpa-onnx, không tải model ASR ngoài; không dùng oracle fallback.
 Muốn dùng transcript có sẵn, chạy CLI với --transcripts (JSON audio-path -> text).
-Mẫu chạy tuần tự với một model chia layer trên hai GPU; chưa tối ưu throughput.
+Các nhóm tối đa 4 mẫu chạy lần lượt với một model chia layer trên hai GPU.
+CLI có --batch-size (mặc định 4); đổi BATCH_SIZE trong notebook nếu cần.
+Nếu CUDA OOM khi generate batch, mọi mẫu đang generate trong batch đó được ghi
+lỗi, không tự retry hoặc giảm batch; kết quả tool đã chạy trước lỗi vẫn được giữ.
 CLI có --num-gpus 1 để chủ động dùng một GPU, không tự fallback khi thiếu GPU.
 Không cài dependency của baseline vào môi trường Transformers 4.x đang train Qwen3.
 Không cần flash-attn/FLA: dùng SDPA và đường fallback Gated DeltaNet của Transformers.
 Chưa chạy GPU Kaggle trong lần triển khai; smoke là bước kiểm chứng tương thích/VRAM.
 Version packages, resolved HF revision, device map, token counts, thời gian và peak VRAM từng GPU
 được lưu để tái lập. Có thể cố định REVISION bằng commit HF hoặc dùng snapshot local.
+Generation stats ghi batch size, token counts từng mẫu và chiều dài input sau padding.
+seconds từng mẫu là thời gian qua các lượt batch của mẫu đó, không phải latency
+inference độc lập; report.seconds là tổng thời gian đánh giá. Batch 4 chưa kiểm VRAM GPU.
 
 ## Local CLI
 
@@ -60,6 +70,10 @@ python qwen35_baseline/run.py --data-root ../train+public_test --split train --i
 - Không đưa label, final_state hoặc file state vào prompt. State train chỉ đọc
   sau inference để tính diagnostic hash của state gold đầy đủ.
 - Mỗi generation một call, tối đa 8 quyết định; mỗi bước đọc observation thật.
+- Vẫn prompt enable_thinking=False. Nếu model sinh một block <think>...</think>
+  hoàn chỉnh ở đầu, parser bỏ block đó và chỉ đọc câu trả lời/call phía sau.
+  Call trong thinking không thực thi; raw output vẫn lưu trong trace. Block thiếu
+  thẻ đóng, lồng nhau, lặp lại hoặc không có câu trả lời phía sau vẫn báo lỗi.
 - env.validate kiểm schema trước execution. Proposal lỗi được log, không chạy.
   Không repair/retry/reset, không giấu các call đã thực thi.
 - Dừng khi model không sinh call, khi gọi sys.ask_missing_info, lỗi hoặc hết budget.
