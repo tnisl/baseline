@@ -2,15 +2,15 @@
 
 Notebook: [LifeMate Two Node Planner Qwen35](https://www.kaggle.com/code/cymeu4l0t/lifemate-two-node-planner-qwen35).
 
-Kaggle version10 includes NUM_GPU, MICRO_BATCH and GRAD_ACC. Its source cells were verified against the repository notebook after QuickSave; no training was launched.
+Kaggle version15 includes configurable GPU batching and quiet model loading. Its source cells were verified against the repository notebook after QuickSave; no training was launched.
 
 Select **GPU T4 ×2**, enable Internet, and attach the private competition dataset. The standalone notebook embeds source and the fixed split of 200 validation IDs; it does not embed competition data. It is saved for manual execution, not launched automatically.
 
 The Kaggle connector did not persist the requested dataset attachment. Before running, use **Add Input** to attach your private competition dataset (currently cymeu4l0t/zaloai-dataset). The notebook detects either its extracted train folder or a ZIP. Publishing status is recorded in published.json; Kaggle's save status does not establish that training has run.
 
-Set PROFILE="smoke" for four optimizer updates on 16 training and eight validation episodes. Set PROFILE="full" for two epochs and every reference-prefix decision from the 200 validation episodes. Use a new RUN_NAME each time. Full starts from the pretrained model, never a smoke adapter.
+Set PROFILE="smoke" for four optimizer updates on 16 training and eight validation episodes. Set PROFILE="full" for the configured EPOCHS and every reference-prefix decision from the 200 validation episodes. Use a new RUN_NAME each time. Full starts from the pretrained model, never a smoke adapter.
 
-The notebook now defaults to CHECK_KERNELS=True and RUN_NAME="planner_kernel_smoke_02". This inspects Gated DeltaNet bindings after Unsloth has loaded/patched the model and profiles optimizer step2 on rank0, including the configured accumulation microbatches and backward. It does not install or force optional kernels. Set CHECK_KERNELS=False for ordinary training without profiling.
+The notebook now defaults to CHECK_KERNELS=True and RUN_NAME="planner_quiet_load_smoke_01". This inspects Gated DeltaNet bindings after Unsloth has loaded/patched the model and profiles optimizer step2 on rank0, including the configured accumulation microbatches and backward. It does not install or force optional kernels. Set CHECK_KERNELS=False for ordinary training without profiling.
 
 Kernel diagnostics are saved before validation:
 
@@ -41,3 +41,5 @@ The requirements pin the Qwen3.5/T4 dependency family. packages.txt captures the
 Keep notebook/output private. artifacts.zip contains the final adapter, prepared examples, manifests and reports; intermediate checkpoints and compile caches remain outside that archive. No training, GPU smoke or validation-quality run is performed by publishing the notebook.
 
 Startup diagnostics record PID/rank, stage duration, process RSS, available system RAM and allocated/reserved GPU memory before/after import, model loading, LoRA attachment and Trainer initialization. If a stage takes longer than 120 seconds, faulthandler repeatedly records all Python thread stacks in diagnostics/rankN.STAGE.stacks.log. The timer is diagnostic, not a termination deadline. These files remain under the output directory even when startup fails; no optimizer/model changes are implied by this diagnostic update.
+
+The v14 load-model stack dumps repeatedly stopped in Unsloth's stream wrapper while tqdm refreshed the loading bar. Hub/Transformers progress bars are now explicitly disabled in tokenization, training and validation, with TQDM_DISABLE/HF_HUB_DISABLE_PROGRESS_BARS set before child imports. Trainer uses disable_tqdm=True, retaining ordinary loss logs, startup markers and stack diagnostics. CPU tests verify suppression; a fresh T4 run must confirm resolution. EPOCHS=1 preserves the latest user-edited Kaggle setting.

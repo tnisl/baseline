@@ -8,6 +8,16 @@ import sys
 import time
 
 
+def disable_progress_bars():
+    """Call after Unsloth's import in training; keep ordinary logs and stage markers."""
+    os.environ["TQDM_DISABLE"] = "1"
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    from huggingface_hub.utils import disable_progress_bars as disable_hub_bars
+    from transformers.utils import logging as transformers_logging
+    disable_hub_bars()
+    transformers_logging.disable_progress_bar()
+
+
 def memory_snapshot():
     result = {}
     for filename, fields in (("/proc/self/status", {"VmRSS", "VmHWM", "Threads"}),

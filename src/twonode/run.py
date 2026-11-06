@@ -20,6 +20,7 @@ def launch(config, train_python, eval_python):
         raise ValueError("NUM_GPU exceeds CUDA_VISIBLE_DEVICES")
     devices = devices[:config.world_size]
     environment = dict(os.environ, TOKENIZERS_PARALLELISM="false", PYTHONHASHSEED=str(config.seed),
+                       TQDM_DISABLE="1", HF_HUB_DISABLE_PROGRESS_BARS="1",
                        CUDA_VISIBLE_DEVICES=",".join(devices), CUBLAS_WORKSPACE_CONFIG=":4096:8")
     config_path = str(config.path / "config.json")
     subprocess.run([eval_python, "-u", "-m", "twonode.tokenization", "--config", config_path],

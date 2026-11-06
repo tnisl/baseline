@@ -36,6 +36,8 @@ class LaunchTests(unittest.TestCase):
                     self.assertEqual(launch(config, "train-python", "eval-python"), {"ok": True})
                 training = run.call_args_list[1]
                 self.assertIn(f"--nproc_per_node={gpu}", training.args[0])
+                self.assertEqual(training.kwargs["env"]["TQDM_DISABLE"], "1")
+                self.assertEqual(training.kwargs["env"]["HF_HUB_DISABLE_PROGRESS_BARS"], "1")
                 self.assertEqual(training.kwargs["env"]["CUDA_VISIBLE_DEVICES"], "4" if gpu == 1 else "4,7")
                 self.assertEqual(popen.call_count, gpu)
                 for rank, call in enumerate(popen.call_args_list):

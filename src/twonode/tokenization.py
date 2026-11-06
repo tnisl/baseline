@@ -43,6 +43,8 @@ class CompletionCollator:
 
 
 def tokenize(config):
+    from .diagnostics import disable_progress_bars
+    disable_progress_bars()
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(config.model, revision=config.revision)
     if tokenizer.pad_token_id is None:

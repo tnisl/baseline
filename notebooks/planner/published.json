@@ -1,7 +1,7 @@
 {
   "url": "https://www.kaggle.com/code/cymeu4l0t/lifemate-two-node-planner-qwen35",
   "kernel_id": 142956220,
-  "version_number": 10,
+  "version_number": 15,
   "execution_type": "QuickSave",
   "is_private": true,
   "machine_shape": "NvidiaTeslaT4",
@@ -16,5 +16,7 @@
   "profiler_rank": 0,
   "gpu_kernel_execution_verified": false,
   "local_update_pending": false,
-  "configurable_gpu_batch": true
+  "configurable_gpu_batch": true,
+  "quiet_model_loading": true,
+  "load_stall_fix_verified_on_gpu": false
 }

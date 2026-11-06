@@ -61,7 +61,7 @@ Mỗi run cần tên thư mục mới. Không tự chạy smoke trước full ho
 import base64, hashlib, io, json, os, shutil, subprocess, sys, zipfile
 
 PROFILE = "smoke"  # "smoke" or "full"
-RUN_NAME = "planner_kernel_smoke_02"  # use a NEW name for each run
+RUN_NAME = "planner_quiet_load_smoke_01"  # use a NEW name for each run
 CHECK_KERNELS = True  # inspect patched bindings + profile optimizer step 2 on rank 0
 NUM_GPU = 2
 MICRO_BATCH = 2  # examples per GPU per forward/backward
@@ -71,7 +71,7 @@ DATA_ARCHIVE = None  # optional explicit ZIP in the attached dataset
 MODEL_REVISION = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
 MAX_LENGTH = 8192  # prompt + output; no silent truncation; contest maximum is 16384
 EVAL_BATCH = 2
-EPOCHS = 2
+EPOCHS = 1  # preserve the latest Kaggle configuration; change for full training
 LEARNING_RATE = 5e-5
 EVALUATE_BASE = True  # paired base vs adapter, same prompts and decoding
 
@@ -109,10 +109,11 @@ if not (VENV / "bin/python").exists():
 PYTHON = str(VENV / "bin/python")
 subprocess.run(uv + ["pip", "install", "--python", PYTHON, "-r", str(SOURCE / "requirements.txt")], check=True)
 RUN_ENV = dict(os.environ, PYTHONPATH=str(SOURCE / "src"), TOKENIZERS_PARALLELISM="false",
+               TQDM_DISABLE="1", HF_HUB_DISABLE_PROGRESS_BARS="1",
                HF_HOME="/tmp/lifemate_two_node_hf", PYTHONUNBUFFERED="1")
 subprocess.run([PYTHON, "-c", "import sys, torch; print(torch.__version__); print([torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]); assert torch.cuda.device_count() >= int(sys.argv[1]), 'NUM_GPU exceeds visible CUDA GPUs; check Kaggle settings'", str(NUM_GPU)], env=RUN_ENV, check=True)
 ''')
-    markdown("## Locate competition training data\nOnly train.jsonl and train_tools_catalog.json are needed. ZIP extraction reads only these two members and never extracts environment state files. If sources are ambiguous, set DATA_ROOT or DATA_ARCHIVE above.")
+    markdown("## Quiet model loading\nHub/Transformers progress bars are disabled in tokenization, training and validation to avoid the repeated stderr writes observed in the v14 load-model stack dumps. Trainer uses plain loss logs instead of a progress bar. Startup start/complete markers and stack dumps remain enabled. This targets the observed logging blockage; the fix still needs a fresh GPU run.\n\n## Locate competition training data\nOnly train.jsonl and train_tools_catalog.json are needed. ZIP extraction reads only these two members and never extracts environment state files. If sources are ambiguous, set DATA_ROOT or DATA_ARCHIVE above.")
     code('''if DATA_ROOT is None:
     matches = sorted(Path("/kaggle/input").rglob("train/train.jsonl"))
     if len(matches) == 1:

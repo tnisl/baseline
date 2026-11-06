@@ -6,6 +6,7 @@ import json
 import time
 
 from .config import RunConfig
+from .diagnostics import disable_progress_bars
 from .io import file_hash, read_jsonl, write_json, write_jsonl
 from .metrics import grade, summarize
 from .prompts import PROMPT_HASH
@@ -21,6 +22,7 @@ def evaluate(config, worker_rank):
     from transformers import AutoModelForImageTextToText, AutoTokenizer, set_seed
     from peft import PeftModel
 
+    disable_progress_bars()
     set_seed(config.seed)
     lineage = json.loads((config.path / "adapter/lineage.json").read_text())
     manifest = json.loads((config.prepared / "manifest.json").read_text())

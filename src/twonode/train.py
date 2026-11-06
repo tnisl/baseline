@@ -8,7 +8,7 @@ from pathlib import Path
 import time
 
 from .config import RunConfig
-from .diagnostics import startup_stage
+from .diagnostics import disable_progress_bars, startup_stage
 from .io import fingerprint, read_jsonl, write_json
 
 
@@ -37,6 +37,8 @@ def train(config):
     if world_size != config.world_size:
         raise ValueError(f"Launch training using torchrun --nproc_per_node={config.world_size}")
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["TQDM_DISABLE"] = "1"
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
     cache = config.path / "compile_cache" / f"rank{local_rank}"
     os.environ["TORCHINDUCTOR_CACHE_DIR"] = str(cache / "inductor")
     os.environ["TRITON_CACHE_DIR"] = str(cache / "triton")
@@ -48,6 +50,7 @@ def train(config):
         from transformers import Trainer, TrainerCallback, TrainingArguments, set_seed
         from .tokenization import CompletionCollator, prompt_ids
 
+    disable_progress_bars()
     if not torch.cuda.is_available() or torch.cuda.device_count() < world_size:
         raise RuntimeError(f"At least {world_size} CUDA GPUs must be visible to each training process")
     torch.cuda.set_device(local_rank)
@@ -155,6 +158,7 @@ def train(config):
         fp16=not force_fp32, bf16=False,
         eval_strategy="no", save_strategy="steps", save_steps=100, save_total_limit=2,
         logging_steps=1 if config.profile == "smoke" else 10, logging_nan_inf_filter=False,
+        disable_tqdm=True,
         report_to="none", seed=config.seed, data_seed=config.seed,
         dataloader_num_workers=0, remove_unused_columns=False,
         ddp_find_unused_parameters=False, ddp_broadcast_buffers=False,
