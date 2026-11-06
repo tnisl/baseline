@@ -62,6 +62,11 @@ chọn đối tượng, ngày giờ theo context, giữ thời lượng lịch, 
 phân biệt ok và done, làm phần độc lập trước khi hỏi thiếu thông tin. Kind/Returns
 được bổ sung vào description; parameters giữ nguyên. Tool mới của public không bị
 lọc theo nhãn train. Không đọc state trực tiếp cho inference, không replay history.
+TIME_CONDITION_EXAMPLES bổ sung 7 ví dụ tự tạo về giờ kém/rưỡi, mốc phụ thuộc qua
+ngày, đơn vị phút, giữ thời lượng, nhánh loại trừ, điều kiện tổng nhóm và ngoại lệ
+kèm ngưỡng nghiêm ngặt. Dùng bài toán thẻ/tệp/lô sản xuất, không lấy lại tình huống
+thời tiết, chuyển tiền, hóa đơn, đặt xe trong tập validation 100 mẫu seed 42.
+Các ví dụ không định nghĩa thêm tool; giá trị ví dụ không được dùng vào tác vụ thật.
 
 Prompt yêu cầu gọi meta tool thay vì hỏi bằng lời rồi dừng, có ví dụ XML minh họa.
 Lookup rỗng/nhiều ứng viên chưa phân biệt được phải báo ID thiếu sau khi làm phần

@@ -205,7 +205,7 @@ class AgentTests(unittest.TestCase):
             self.assertEqual(messages[-1]["role"], "tool")
             self.assertEqual(json.loads(messages[-1]["content"])["contacts"][0]["id"],
                              "observed_42")
-            self.assertNotIn("invented", str(messages))
+            self.assertNotIn("invented", str(messages[1:]))
             return "Đã xong."
         pred, detail = run_episode(ITEM, CATALOG, env, generate)
         self.assertEqual(pred["tool_calls"], [

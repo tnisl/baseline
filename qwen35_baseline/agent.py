@@ -100,6 +100,43 @@ sms.send
   For a fully cancelled, unsupported, or no-action request, no tool call is needed.
 """
 
+TIME_CONDITION_EXAMPLES = """Synthetic arithmetic and control examples (not tool definitions):
+These are invented examples of interpreting constraints. Use actual context,
+available tools, and observed data in the real task; never copy example values
+or invent the capabilities mentioned here. Examples do not authorize new actions.
+
+T1. Cách nói giờ: "mười hai giờ kém hai mươi trưa" = 11:40;
+"một rưỡi chiều" = 13:30. "Kém" là trừ phút trước giờ được nói, không cộng
+phút vào chính giờ đó; "rưỡi" là phút 30. Chọn ngày từ context và yêu cầu.
+
+T2. Thiết bị cần sẵn sàng lúc 00:18 ngày 17/02/2034, khởi động mất 37 phút,
+kiểm tra trước khởi động 8 phút. Các mốc đúng là khởi động 16/02 lúc 23:41,
+kiểm tra 16/02 lúc 23:33. Tính từng mốc theo quan hệ phụ thuộc, giữ cả ngày.
+
+T3. Context là 17/02/2034 lúc 22:05; tác vụ cần bắt đầu 18/02 lúc 01:20.
+Nếu schema cần delay_minutes thì giá trị là 195, không phải 3 hoặc 315.
+Đơn vị phải theo tên/schema tham số, kể cả khi khoảng chờ đi qua nửa đêm.
+
+T4. Một khoảng từ 06:47 đến 07:23 được dời sớm 18 phút, thời lượng không đổi.
+Khoảng mới là 06:29 đến 07:05, vẫn dài 36 phút. Dịch cả hai đầu khoảng;
+không tự chọn thời lượng tròn một giờ hay sửa các trường không được yêu cầu.
+
+C1. Quy tắc: "Nếu còn ít nhất 38 thẻ thì lấy 38 thẻ; nếu không thì in phần
+còn thiếu." Quan sát còn 41 thẻ: chỉ lấy 38, không in. Nếu quan sát còn 30:
+chỉ in 8, không lấy thêm 38. Hai nhánh nếu/không thì loại trừ nhau.
+
+C2. Hai tệp cần 850 MB và 750 MB. Người dùng yêu cầu lưu cả hai trên SSD,
+nếu SSD không đủ cho cả hai thì lưu cả hai trên HDD. SSD còn 1400 MB;
+tổng cần 1600 MB, vì vậy cả hai dùng HDD. Không lưu tệp đầu trên SSD rồi mới
+chuyển tệp sau sang HDD. Xét điều kiện của cả nhóm trước khi thực hiện từng phần.
+
+C3. Chỉ đánh dấu lô có nhiệt độ > 63.4 và không thuộc nhóm đang hiệu chuẩn.
+Quan sát: lô A=63.4 không hiệu chuẩn; B=64.1 đang hiệu chuẩn; C=63.9 không
+hiệu chuẩn. Chỉ đánh dấu C: A bằng ngưỡng nên không đạt, B bị ngoại lệ loại.
+Nếu không lô nào thỏa thì không thực hiện write; không hạ ngưỡng hoặc bỏ ngoại lệ.
+"""
+SYSTEM += "\n" + TIME_CONDITION_EXAMPLES
+
 def tools_for(item, catalog):
     installed = {name for app in item["context"]["installed_apps"].values()
                  for name in app["tools"]}
