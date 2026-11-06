@@ -21,7 +21,7 @@ BATCH_SIZE=4 mặc định. Mỗi lượt generate nhận tối đa 4 prompt, le
 attention mask; mỗi mẫu có history, schema tool và ToolEnv riêng. Mẫu dừng/lỗi
 được bỏ khỏi lượt tiếp theo, batch cuối có thể nhỏ hơn 4. Không ghép transcript
 thành một hội thoại. EOS và giới hạn input được kiểm riêng từng mẫu.
-RUN_NAME mặc định là qwen35_random200_2gpu_batch4_policy_01, không ghi đè output cũ.
+RUN_NAME mặc định là qwen35_random200_2gpu_batch4_extract_01, không ghi đè output cũ.
 Đổi SEED để lấy tập khác; selected_ids.txt, selection.json lưu ID và SHA256 dữ liệu.
 Mọi mẫu lỗi vẫn nằm trong mẫu số 200; không loại mẫu theo kết quả model.
 
@@ -72,10 +72,12 @@ python qwen35_baseline/run.py --data-root ../train+public_test --split train --i
 - Không đưa label, final_state hoặc file state vào prompt. State train chỉ đọc
   sau inference để tính diagnostic hash của state gold đầy đủ.
 - Mỗi generation một call, tối đa 8 quyết định; mỗi bước đọc observation thật.
-- Vẫn prompt enable_thinking=False. Nếu model sinh một block <think>...</think>
-  hoàn chỉnh ở đầu, parser bỏ block đó và chỉ đọc câu trả lời/call phía sau.
-  Call trong thinking không thực thi; raw output vẫn lưu trong trace. Block thiếu
-  thẻ đóng, lồng nhau, lặp lại hoặc không có câu trả lời phía sau vẫn báo lỗi.
+- Vẫn prompt enable_thinking=False. Parser bỏ qua thinking và lấy tool_call đầu
+  tiên ngoài block think, bỏ mọi nội dung/call phía sau. Sau call đó, model nhận
+  observation thật từ ToolEnv ở lượt generate mới; không dùng hội thoại model
+  tự sinh tiếp. Raw output đầy đủ vẫn lưu trong trace. Không sửa arguments.
+  Block tool đầu tiên sai/incomplete vẫn báo lỗi, không tìm call khác để thay.
+  Nếu không có call ngoài thinking (kể cả thinking chưa đóng), mẫu dừng không call.
 - env.validate kiểm schema trước execution. Proposal lỗi được log, không chạy.
   Không repair/retry/reset, không giấu các call đã thực thi.
 - Dừng khi model không sinh call, khi gọi sys.ask_missing_info, lỗi hoặc hết budget.

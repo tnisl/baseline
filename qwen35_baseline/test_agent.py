@@ -143,9 +143,9 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(len(pred["tool_calls"]), 1)
         self.assertEqual(detail["status"], "missing_info")
 
-    def test_reject_malformed_multiple_unknown_calls(self):
+    def test_reject_malformed_or_unknown_first_call(self):
         call = xml("contacts.search", {"query": "Nam"})
-        for raw in [call + call, call[:-4], call + "suffix",
+        for raw in [call[:-4],
                     xml("unknown.tool", {}), "<tool_call>broken</tool_call>"]:
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 parse_action(raw, TOOLS)
@@ -169,19 +169,51 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(detail["status"], "stopped")
         self.assertIn(hidden, detail["trace"][0]["raw"])
 
-    def test_reject_incomplete_nested_or_misplaced_thinking(self):
+    def test_thinking_is_ignored_wherever_it_occurs(self):
         call = xml("contacts.search", {"query": "Nam"})
-        for raw in ("<think>" + call, "</think>" + call,
+        expected = {"name": "contacts.search", "arguments": {"query": "Nam"}}
+        for raw in ("</think>" + call,
                     "<think>outer<think>inner</think></think>" + call,
                     "<think></think><think></think>" + call,
-                    "<think></think>", "prefix<think></think>" + call,
-                    call + "<think></think>"):
-            with self.subTest(raw=raw), self.assertRaises(ValueError):
-                parse_action(raw, TOOLS)
+                    "prefix<think></think>" + call,
+                    call + "<think></think>", call + "<think>unfinished"):
+            with self.subTest(raw=raw):
+                self.assertEqual(parse_action(raw, TOOLS), expected)
+        for raw in ("<think>" + call, "<think></think>", "<think>unfinished"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(parse_action(raw, TOOLS))
+
+    def test_first_call_only_then_wait_for_real_observation(self):
+        first = xml("contacts.search", {"query": "Nam"})
+        invented = xml("sms.send", {"contact_id": "invented", "content": "hi"})
+        raw = first + "\nuser\n<think></think>\n" + invented + "\nassistant\nĐã gửi."
+        env = Env()
+        def generate(messages, tools):
+            if not env.calls:
+                return raw
+            self.assertEqual(messages[-1]["role"], "tool")
+            self.assertEqual(json.loads(messages[-1]["content"])["contacts"][0]["id"],
+                             "observed_42")
+            self.assertNotIn("invented", str(messages))
+            return "Đã xong."
+        pred, detail = run_episode(ITEM, CATALOG, env, generate)
+        self.assertEqual(pred["tool_calls"], [
+            {"name": "contacts.search", "arguments": {"query": "Nam"}}])
+        self.assertEqual(detail["trace"][0]["raw"], raw)
+        self.assertEqual(detail["status"], "stopped")
+
+    def test_trailing_text_and_calls_are_ignored_without_editing_arguments(self):
+        args = {"query": "literal <think>text</think>"}
+        first = xml("contacts.search", args)
+        for suffix in ("suffix", first, "<tool_call>incomplete"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(parse_action(first + suffix, TOOLS),
+                                 {"name": "contacts.search", "arguments": args})
 
     def test_thinking_does_not_relax_tool_validation(self):
         call = xml("contacts.search", {"query": "Nam"})
-        for raw in (call + call, call[:-4], call + "suffix", xml("unknown.tool", {})):
+        for raw in (call[:-4], xml("unknown.tool", {}) + call,
+                    xml("contacts.search", {"unknown": "x"}) + call):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 parse_action("<think>Chọn công cụ.</think>\n" + raw, TOOLS)
 

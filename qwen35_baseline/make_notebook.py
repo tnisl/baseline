@@ -40,7 +40,7 @@ MAX_NEW_TOKENS = 768
 MAX_STEPS = 8
 NUM_GPUS = 2
 BATCH_SIZE = 4     # tối đa 4 mẫu đang hoạt động trong mỗi lượt generate
-RUN_NAME = "qwen35_smoke_2gpu_batch4_policy_01"  # đổi tên khi chạy lại; không reset môi trường ngầm
+RUN_NAME = "qwen35_smoke_2gpu_batch4_extract_01"  # đổi tên khi chạy lại; không reset môi trường ngầm
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 WORK = Path("/kaggle/working/qwen35_baseline")
 WORK.mkdir(exist_ok=True)
@@ -153,13 +153,14 @@ display(FileLink(str(Path(archive).relative_to("/kaggle/working"))))
             "Bật Internet và GPU T4 x2, rồi Run All. Một model FP16 chia layer trên hai GPU; không tạo hai bản model. Dataset riêng tư cymeu4l0t/zaloai-dataset được tìm trong Input hoặc nạp bằng KaggleHub nếu chưa gắn.\n"
             "BATCH_SIZE=4: generate cùng lúc tối đa 4 transcript, left padding; mỗi mẫu có history và ToolEnv riêng. Mẫu đã dừng được bỏ khỏi các lượt sau; batch cuối có thể nhỏ hơn 4. VRAM batch 4 chưa được kiểm chứng trên GPU.\n"
             "Prompt mở rộng quy tắc history/sửa lời, điều kiện/ngoại lệ, chọn đối tượng, ngày giờ, schema và missing-info; mô tả tool có Kind/Returns. Chưa đo chất lượng model với prompt mới.\n"
+            "Parser bỏ qua thinking, chỉ lấy tool call đầu tiên ngoài block think; bỏ phần tự sinh tiếp và đợi observation thật trước bước sau.\n"
             "Kết quả: score_100 (F1 gated by state hash), hash_accuracy, tool_call_f1, statuses và trace từng mẫu.\n"
             "Scorer local theo công thức công bố; fuzzy tokenizer có thể khác BTC. Không áp latency gate.\n"
             "Danh sách ID, seed và SHA256 dataset được lưu trong artifacts. Mẫu lỗi vẫn tính trong mẫu số 200.\n"
             "Chưa chạy GPU trước khi lưu notebook. Giữ notebook/output riêng tư vì có dữ liệu cuộc thi.\n").splitlines(True)
         config = "".join(notebook["cells"][1]["source"])
         config = config.replace('PROFILE = "smoke"', 'PROFILE = "random200"')
-        config = config.replace('RUN_NAME = "qwen35_smoke_2gpu_batch4_policy_01"', 'RUN_NAME = "qwen35_random200_2gpu_batch4_policy_01"')
+        config = config.replace('RUN_NAME = "qwen35_smoke_2gpu_batch4_extract_01"', 'RUN_NAME = "qwen35_random200_2gpu_batch4_extract_01"')
         # Preserve the input budget selected in the user's current Kaggle v6.
         config = config.replace('MAX_INPUT = 16384', 'MAX_INPUT = 8192')
         notebook["cells"][1]["source"] = config.splitlines(True)

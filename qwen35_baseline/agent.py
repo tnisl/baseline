@@ -138,31 +138,23 @@ def messages_for(item, mode="oracle", cache=None):
     return messages
 
 def parse_action(text, tools):
-    """Parse Qwen3.5 native XML. No repairs or guesses of malformed arguments."""
-    text = text.strip()
-    # Non-thinking prompting does not guarantee the model omits this wrapper.
-    # Discard only one complete leading block; never execute calls inside it.
-    if text.startswith("<think>"):
-        thinking = re.match(r"<think>(.*?)</think>\s*", text, re.S)
-        if not thinking or "<think>" in thinking.group(1):
-            raise ValueError("Malformed or incomplete thinking block")
-        text = text[thinking.end():].strip()
-        if not text:
-            raise ValueError("Empty answer after thinking block")
-    if "<think>" in text or "</think>" in text:
-        raise ValueError("Unexpected thinking marker outside leading block")
-    if "<tool_call>" not in text:
-        if any(tag in text for tag in ("tool_call", "<function=", "<parameter=")):
-            raise ValueError("Malformed tool call")
+    """Extract the first native call outside thinking; validate its arguments strictly."""
+    depth, block = 0, None
+    for marker in re.finditer(r"<think>|</think>|<tool_call>", text):
+        tag = marker.group()
+        if tag == "<think>":
+            depth += 1
+        elif tag == "</think>":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            end = text.find("</tool_call>", marker.end())
+            if end < 0:
+                raise ValueError("Incomplete tool call")
+            block = text[marker.end():end]
+            break
+    if block is None:
         return None
-    blocks = re.findall(r"<tool_call>(.*?)</tool_call>", text, re.S)
-    if len(blocks) != 1 or text.count("<tool_call>") != 1:
-        raise ValueError("Expected exactly one complete tool call")
-    prefix, suffix = text.split("<tool_call>", 1)
-    suffix = suffix.split("</tool_call>", 1)[1]
-    if suffix.strip():
-        raise ValueError("Unexpected text after tool call")
-    match = re.fullmatch(r"\s*<function=([^>\s]+)>(.*?)</function>\s*", blocks[0], re.S)
+    match = re.fullmatch(r"\s*<function=([^>\s]+)>(.*?)</function>\s*", block, re.S)
     if not match:
         raise ValueError("Malformed function")
     name, body = match.groups()
