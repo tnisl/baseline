@@ -1,0 +1,9 @@
+# Separate environment from the Qwen3 / Transformers 4.x training notebooks.
+transformers>=5.3,<6
+accelerate>=1.12,<2
+torch>=2.6
+safetensors>=0.4.5
+sherpa-onnx>=1.12,<2
+soundfile>=0.13,<1
+scipy>=1.13,<2
+numpy>=1.26,<3

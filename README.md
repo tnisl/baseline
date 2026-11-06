@@ -1,5 +1,7 @@
 # LifeMate — Planner / Caller với Qwen3-4B
 
+Baseline một model **Qwen3.5-4B** và notebook Kaggle độc lập: [qwen35_baseline](qwen35_baseline/README.md).
+
 Repo giữ các notebook train, validation và chẩn đoán đang dùng. Prompt tiếng Anh, tool schema TypeScript; Planner chọn bước tiếp theo, Caller điền arguments, tool result quay lại Planner. Route `summarizer` kết thúc workflow mà không cần sinh bằng một model Summarizer.
 
 | Mục đích | Mã nguồn | Kaggle |
