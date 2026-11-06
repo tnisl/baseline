@@ -25,6 +25,7 @@ class RunConfig:
     smoke_steps: int = 4
     eval_batch: int = 2
     evaluate_base: bool = True
+    check_kernels: bool = False
 
     def __post_init__(self):
         if self.profile not in ("smoke", "full"):
@@ -35,6 +36,8 @@ class RunConfig:
             raise ValueError("Invalid context/output budget")
         if self.smoke_steps <= 0 or self.epochs <= 0 or self.eval_batch <= 0:
             raise ValueError("Training steps, epochs and eval batch must be positive")
+        if self.check_kernels and self.profile == "smoke" and self.smoke_steps < 2:
+            raise ValueError("Kernel profiling requires at least two optimizer steps")
 
     @property
     def path(self):

@@ -548,6 +548,7 @@ src/twonode/
   config.py         Cấu hình serializable cho các process
   tokenization.py   Non-thinking template, completion mask, padding
   train.py          Unsloth DDP, chỉ train Planner
+  kernel_diagnostics.py  Bindings Gated DeltaNet và CUDA trace cho kiểm định fast path
   evaluate.py       Transformers + PEFT trong process mới
   metrics.py        Chấm output tự sinh, không revise
   run.py            Điều phối prepare -> tokenize -> train -> validation
@@ -565,6 +566,7 @@ Mở notebook được liên kết trong [hướng dẫn Planner](notebooks/plan
 
 - PROFILE="smoke": 16 train episodes, 8 validation episodes, 4 optimizer steps. Cùng microbatch2/GPU và accumulation2 như full. Chọn cả episode dài, nhiều call, missing_info và no-action khi có.
 - PROFILE="full": toàn bộ train partition, 2 epoch, sau đó validation trên mọi prefix của đủ 200 validation episodes.
+- CHECK_KERNELS=True mặc định trong notebook: ghi bindings từng layer sau Unsloth patch trên cả hai rank; profile CPU/CUDA của optimizer step2 trên rank0. Artifact nằm trong diagnostics/ và được lưu trước validation. Xem [hướng dẫn đọc kernel report](notebooks/planner/README.md). Không dùng thời gian step2 để so sánh throughput vì có overhead của profiler.
 - Đổi RUN_NAME cho mỗi lần chạy. Không tự ghi đè/resume run cũ và không dùng adapter smoke làm trọng số khởi tạo full.
 - Mặc định so sánh base và adapter trên cùng prompt token IDs, greedy decoding, không repair/enforcer. Base là cùng backbone đóng băng với adapter được disable.
 
@@ -581,7 +583,7 @@ python -m twonode.run --data-root ../train+public_test --split-file split.txt --
 python -m twonode.run --data-root ../train+public_test --split-file split.txt --output outputs/planner_full_01 --profile full
 ~~~
 
-Lệnh run tự launch torchrun hai process cho training, không chạy lệnh run bên trong torchrun lần nữa. Có --revision, --max-length, --eval-batch, --epochs, --learning-rate và --skip-base. Không tự giảm microbatch hoặc đổi precision khi OOM.
+Lệnh run tự launch torchrun hai process cho training, không chạy lệnh run bên trong torchrun lần nữa. Có --revision, --max-length, --eval-batch, --epochs, --learning-rate và --skip-base. Thêm --check-kernels để bật kiểm định kernel như notebook; CLI mặc định không profile. Không tự giảm microbatch hoặc đổi precision khi OOM.
 
 ### 14.4. Dữ liệu và tokenization đã audit local
 

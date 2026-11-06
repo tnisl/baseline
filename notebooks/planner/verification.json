@@ -1,11 +1,12 @@
 {
   "checks": {
-    "unit_and_tensor_tests": 11,
-    "passed": 11,
+    "unit_and_tensor_tests": 15,
+    "passed": 15,
     "notebook_schema_valid": true,
     "embedded_source_matches": true,
     "gpu_test_run": false,
-    "startup_stack_dump_verified_on_cpu": true
+    "startup_stack_dump_verified_on_cpu": true,
+    "kernel_inventory_and_cpu_trace_verified": true
   },
   "cpu_environment": {
     "python": "3.12.14",
@@ -42,7 +43,7 @@
   "context_limit": 8192,
   "max_new_tokens": 64,
   "no_truncation": true,
-  "notebook_sha256": "af03b58ba4489067c34ec6eb69dc12306f3ec42f5c6be720225f56fba2d90a82",
+  "notebook_sha256": "82142713f5c778526c1d6614170064c3f4acabfade04ef24a1e6b82bf9e9812e",
   "limitations": [
     "No Unsloth DDP or GPU smoke run performed.",
     "CPU tiny Qwen3.5 verifies contracts and adapter reload, not trained model quality."

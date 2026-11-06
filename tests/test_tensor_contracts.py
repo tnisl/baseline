@@ -57,6 +57,8 @@ class TensorContracts(unittest.TestCase):
                            "num_position_embeddings": 16},
             image_token_id=60, video_token_id=61, vision_start_token_id=62, vision_end_token_id=63)
         base = Qwen3_5ForConditionalGeneration(config)
+        from twonode.kernel_diagnostics import kernel_inventory
+        self.assertEqual(kernel_inventory(base)["gated_delta_layers"], 1)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             base.save_pretrained(root / "base")

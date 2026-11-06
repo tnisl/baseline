@@ -57,12 +57,14 @@ def main():
     parser.add_argument("--train-python", default=sys.executable)
     parser.add_argument("--eval-python", default=sys.executable)
     parser.add_argument("--skip-base", action="store_true")
+    parser.add_argument("--check-kernels", action="store_true", help="Inspect GDN bindings and profile optimizer step 2")
     args = parser.parse_args()
     if args.output.exists() and any(args.output.iterdir()):
         raise FileExistsError("Use a new empty output directory; never overwrite or silently resume a run")
     config = RunConfig(output=str(args.output.resolve()), profile=args.profile,
                        revision=args.revision, max_length=args.max_length, eval_batch=args.eval_batch,
-                       epochs=args.epochs, learning_rate=args.learning_rate, evaluate_base=not args.skip_base)
+                       epochs=args.epochs, learning_rate=args.learning_rate, evaluate_base=not args.skip_base,
+                       check_kernels=args.check_kernels)
     config.path.mkdir(parents=True, exist_ok=True)
     manifest = prepare(args.data_root, args.split_file, config.prepared, config.profile == "smoke")
     print(json.dumps({"data_counts": manifest["counts"], "quarantine": manifest["quarantine"]}), flush=True)

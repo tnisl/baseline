@@ -95,9 +95,20 @@ def train(config):
     steps, gradient_checks = [], []
 
     class Checks(TrainerCallback):
+        def __init__(self):
+            self.profiler = None
+
         def on_step_begin(self, args, state, control, **kwargs):
             torch.cuda.synchronize()
             self.started = time.monotonic()
+            if config.check_kernels and local_rank == 0 and state.global_step == 1:
+                self.counters_before = vendor_counters()
+                profiler = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,
+                                                              torch.profiler.ProfilerActivity.CUDA])
+                profiler.start()
+                self.profiler = profiler
+                print(json.dumps({"event": "kernel_profile_start", "rank": local_rank,
+                                  "optimizer_step": 2}), flush=True)
 
         def on_pre_optimizer_step(self, args, state, control, **kwargs):
             if config.profile != "smoke":
@@ -112,6 +123,21 @@ def train(config):
         def on_step_end(self, args, state, control, **kwargs):
             torch.cuda.synchronize()
             steps.append(time.monotonic() - self.started)
+            if self.profiler is not None:
+                profiler, self.profiler = self.profiler, None
+                profiler.stop()
+                with startup_stage(config.path, local_rank, "export_kernel_profile"):
+                    summary = save_profile(profiler, config.path, local_rank, state.global_step,
+                                           self.counters_before)
+                print(json.dumps({"event": "kernel_profile_complete", "rank": local_rank,
+                                  "optimizer_step": state.global_step,
+                                  "cuda_events_recorded": summary["cuda_events_recorded"],
+                                  "top_cuda_kernels": summary["cuda_kernels"][:5],
+                                  "candidate_kernel_counts": {key: len(value) for key, value in
+                                                               summary["kernel_name_candidates"].items()}}), flush=True)
+            if config.check_kernels and state.global_step == 2:
+                # Keep profile export time out of the next step on the other rank.
+                torch.distributed.barrier()
 
         def on_log(self, args, state, control, logs=None, **kwargs):
             for key in ("loss", "grad_norm"):
@@ -134,16 +160,33 @@ def train(config):
         ddp_find_unused_parameters=False, ddp_broadcast_buffers=False,
         average_tokens_across_devices=True,
     )
+    checks = Checks()
     with startup_stage(config.path, local_rank, "initialize_trainer"):
         trainer = Trainer(model=model, args=arguments, train_dataset=rows,
-                          data_collator=CompletionCollator(tokenizer.pad_token_id), callbacks=[Checks()])
+                          data_collator=CompletionCollator(tokenizer.pad_token_id), callbacks=[checks])
     if force_fp32 and trainer.accelerator.mixed_precision != "no":
         raise RuntimeError("Unsloth requires no global autocast on Qwen3.5/T4")
+    if config.check_kernels:
+        from .kernel_diagnostics import kernel_inventory, save_profile, vendor_counters
+        inventory = kernel_inventory(trainer.model)
+        write_json(config.path / "diagnostics" / f"rank{local_rank}.kernels.before.json", inventory)
+        print(json.dumps({"event": "kernel_inventory", "rank": local_rank,
+                          "gated_delta_layers": inventory["gated_delta_layers"],
+                          "binding_counts": inventory["binding_counts"]}), flush=True)
     print(json.dumps({"rank": local_rank, "precision": initial_precision,
                       "trainer_fp16": trainer.args.fp16, "lora_targets": targets,
                       "examples": len(rows), "effective_batch": 8}), flush=True)
     torch.cuda.reset_peak_memory_stats()
-    result = trainer.train()
+    try:
+        result = trainer.train()
+    finally:
+        if checks.profiler is not None:
+            checks.profiler.stop()
+            save_profile(checks.profiler, config.path, local_rank, 2, checks.counters_before)
+        if config.check_kernels:
+            inventory = kernel_inventory(trainer.model)
+            inventory["vendor_counters"] = vendor_counters()
+            write_json(config.path / "diagnostics" / f"rank{local_rank}.kernels.after.json", inventory)
     changed = any(not torch.equal(snapshot[name], parameter.detach().cpu())
                   for name, parameter in trainable.items()) if snapshot else None
     if config.profile == "smoke" and (not changed or len(gradient_checks) != config.smoke_steps):
@@ -157,6 +200,7 @@ def train(config):
                    "capability": list(torch.cuda.get_device_capability(local_rank)),
                    "peak_allocated_gib": torch.cuda.max_memory_allocated() / 2**30,
                    "step_seconds": steps, "gradient_checked_steps": gradient_checks,
+                   "instrumented_optimizer_steps": [2] if config.check_kernels else [],
                    "weights_changed": changed, "precision": precision_report(trainer.model)}
     write_json(config.path / f"train_rank{local_rank}.json", rank_report)
     if trainer.is_world_process_zero():

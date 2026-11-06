@@ -48,6 +48,10 @@ Sau train, process train thoát; hai process **Transformers + PEFT thông thư�
 
 Mặc định **smoke**: 16 train episodes, 8 valid episodes, 4 optimizer updates,
 cùng batch/accumulation như full; kiểm tra gradient, adapter và reload/generation.
+**CHECK_KERNELS=True**: ghi bindings từng layer sau Unsloth patch, profile CPU/CUDA
+trên rank 0 ở optimizer step 2, lưu trace và danh sách kernel thực sự xuất hiện.
+Không tự cài/ép bật kernel, không thay precision. Step được profile có overhead;
+không dùng thời gian step đó để kết luận tốc độ. Warning lúc load chưa phải kết luận.
 Đổi PROFILE thành **full** để train toàn bộ train partition trong 2 epoch và
 đánh giá đủ 200 validation episodes. Smoke không chứng minh chất lượng mô hình.
 Mỗi run cần tên thư mục mới. Không tự chạy smoke trước full hoặc khởi tạo full bằng adapter smoke.
@@ -56,7 +60,8 @@ Mỗi run cần tên thư mục mới. Không tự chạy smoke trước full ho
 import base64, hashlib, io, json, os, shutil, subprocess, sys, zipfile
 
 PROFILE = "smoke"  # "smoke" or "full"
-RUN_NAME = "planner_smoke_02"  # use a NEW name for each run
+RUN_NAME = "planner_kernel_smoke_01"  # use a NEW name for each run
+CHECK_KERNELS = True  # inspect patched bindings + profile optimizer step 2 on rank 0
 DATA_ROOT = None  # parent containing train/train.jsonl; autodetected if None
 DATA_ARCHIVE = None  # optional explicit ZIP in the attached dataset
 MODEL_REVISION = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
@@ -133,14 +138,38 @@ assert (DATA_ROOT / "train/train_tools_catalog.json").is_file()
 print("Training data:", DATA_ROOT)
 ''')
     markdown("## Train, then validate\nNo periodic validation or best-loss selection. Export the final adapter, exit DDP, then generate once per held-out prefix. Full validation covers all 200 episodes. Invalid JSON/tool choices count as wrong. Base comparison uses the identical frozen backbone with the adapter disabled. An overlength prompt fails explicitly; do not remove observations to make it fit.\n\nStartup prints start/complete markers with PID, rank and RAM/GPU memory for import, model load, LoRA attachment and Trainer initialization. A stage taking over 120 seconds dumps all Python thread stacks repeatedly into OUTPUT/diagnostics/rankN.STAGE.stacks.log. This records evidence; it does not automatically terminate the job or establish the cause of a stall.")
-    code('''command = [PYTHON, "-u", "-m", "twonode.run", "--data-root", str(DATA_ROOT),
+    markdown("## Kernel fast-path check\nReports cover each rank's Gated DeltaNet bindings before/after training, package versions, stale module flags, and a CPU/CUDA trace of optimizer step 2 on rank 0. The trace includes both gradient-accumulation microbatches and backward. Recurrent/update functions are listed for completeness but normal training uses the chunk/prefill path. Missing package metadata does not rule out bundled Unsloth kernels. Kernel-name matches are evidence to inspect, not an automatic fast/slow verdict. If CUPTI does not record CUDA events, the report explicitly says so.\n\nArtifacts are written immediately after step 2, before validation. Read the kernel_profile_complete log even if later validation is interrupted. Trace export time is excluded from step timers; the profiled step itself includes instrumentation overhead. Both ranks wait after export to avoid charging that wait to the next step.")
+    code('''def show_kernel_diagnostics():
+    directory = OUTPUT / "diagnostics"
+    for path in sorted(directory.glob("rank*.kernels.*.json")):
+        report = json.loads(path.read_text())
+        print(path.name, json.dumps({key: report[key] for key in (
+            "gated_delta_layers", "binding_counts", "module_fast_path_flags")}, indent=2))
+    for path in sorted(directory.glob("rank*.step*.profile.json")):
+        report = json.loads(path.read_text())
+        print(path.name, "CUDA events recorded:", report["cuda_events_recorded"])
+        print("Top CUDA kernels:", json.dumps(report["cuda_kernels"][:10], indent=2))
+        for group, matches in report["kernel_name_candidates"].items():
+            print(group, json.dumps(matches[:8], indent=2))
+        print("Vendor counter deltas:", report["vendor_counter_deltas"])
+        print("Trace:", directory / report["trace"])
+        print(report["interpretation"])
+    if CHECK_KERNELS and not list(directory.glob("rank*.step*.profile.json")):
+        print("No completed kernel profile yet; inspect kernel_profile_start and startup logs.")
+
+command = [PYTHON, "-u", "-m", "twonode.run", "--data-root", str(DATA_ROOT),
            "--split-file", str(SOURCE / "split.txt"), "--output", str(OUTPUT),
            "--profile", PROFILE, "--revision", MODEL_REVISION,
            "--max-length", str(MAX_LENGTH), "--eval-batch", str(EVAL_BATCH),
            "--epochs", str(EPOCHS), "--learning-rate", str(LEARNING_RATE)]
 if not EVALUATE_BASE:
     command.append("--skip-base")
-subprocess.run(command, env=RUN_ENV, check=True)
+if CHECK_KERNELS:
+    command.append("--check-kernels")
+try:
+    subprocess.run(command, env=RUN_ENV, check=True)
+finally:
+    show_kernel_diagnostics()
 ''')
     markdown("## Results\nReference-prefix decisions are not end-to-end agent/contest scores. Latency is amortized per batch, excludes model load and ASR. Keep notebook and outputs private because prepared examples contain competition data.")
     code('''reports = json.loads((OUTPUT / "validation/report.json").read_text())

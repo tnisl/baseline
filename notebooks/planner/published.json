@@ -1,7 +1,7 @@
 {
   "url": "https://www.kaggle.com/code/cymeu4l0t/lifemate-two-node-planner-qwen35",
   "kernel_id": 142956220,
-  "version_number": 5,
+  "version_number": 7,
   "execution_type": "QuickSave",
   "is_private": true,
   "machine_shape": "NvidiaTeslaT4",
@@ -10,5 +10,9 @@
   "dataset_attachment_note": "Kaggle MCP did not persist datasetDataSources or datasetDataSourcesSetter. Add the private competition dataset through Kaggle Add Input before running.",
   "training_launched": false,
   "smoke_default": true,
-  "startup_diagnostics": true
+  "startup_diagnostics": true,
+  "kernel_diagnostics": true,
+  "profiled_optimizer_step": 2,
+  "profiler_rank": 0,
+  "gpu_kernel_execution_verified": false
 }
