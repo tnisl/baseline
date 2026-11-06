@@ -39,6 +39,17 @@ class Env:
         return "hash"
 
 class AgentTests(unittest.TestCase):
+    def test_scalar_booleans_accept_json_and_python_casing_only_for_boolean_schema(self):
+        tools = {"demo.set": {"parameters": {"properties": {
+            "enabled": {"type": "boolean"}, "text": {"type": "string"}}}}}
+        for raw, expected in (("true", True), ("false", False), ("True", True), ("False", False)):
+            action = parse_action(xml("demo.set", {"enabled": raw, "text": raw}), tools)
+            self.assertIs(action["arguments"]["enabled"], expected)
+            self.assertEqual(action["arguments"]["text"], raw)
+        for invalid in ("yes", "FALSE", "True or False"):
+            with self.subTest(invalid=invalid), self.assertRaises(json.JSONDecodeError):
+                parse_action(xml("demo.set", {"enabled": invalid}), tools)
+
     def test_tool_metadata_and_complete_schema_survive_native_conversion(self):
         catalog = copy.deepcopy(CATALOG)
         tool = {"name": "new_app.dispatch", "kind": "write", "returns": "receipt_id",

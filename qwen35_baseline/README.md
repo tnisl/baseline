@@ -52,6 +52,8 @@ hợp lệ báo lỗi, không tìm call khác thay thế. Kết quả JSON thậ
 role=tool cho lượt sau. Call bên trong thinking và observation model tự bịa không
 được thực thi hoặc thêm vào history. Raw output vẫn lưu trong traces.jsonl.
 Generation hết token budget mà chưa stop được ghi lỗi, không chạy action cắt dở.
+Tham số schema boolean nhận true/false và True/False; chỉ chuẩn hóa Python casing
+cho boolean đơn, không thay nội dung string và không dùng eval.
 
 ## Nghiệp vụ và scoring
 
@@ -61,6 +63,10 @@ phân biệt ok và done, làm phần độc lập trước khi hỏi thiếu th
 được bổ sung vào description; parameters giữ nguyên. Tool mới của public không bị
 lọc theo nhãn train. Không đọc state trực tiếp cho inference, không replay history.
 
+Prompt yêu cầu gọi meta tool thay vì hỏi bằng lời rồi dừng, có ví dụ XML minh họa.
+Lookup rỗng/nhiều ứng viên chưa phân biệt được phải báo ID thiếu sau khi làm phần
+độc lập; không lặp lookup y nguyên và không gửi write thiếu required/x-one-of.
+Đây là thay đổi chỉ dẫn, cần chạy model để đo lại; runtime không tự đoán missing-info.
 sys.ask_missing_info kết thúc episode. Mỗi mẫu một ToolEnv, tối đa MAX_STEPS bước,
 không reset/retry ngầm. Mẫu lỗi vẫn tính trong mẫu số SAMPLE_SIZE.
 score_100 là F1 tool call gated bởi state hash; hash_accuracy báo riêng. Scorer local

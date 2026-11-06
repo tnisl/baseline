@@ -71,10 +71,32 @@ Execution and completion:
   call sys.ask_missing_info with the target tool_name and unresolved parameter
   names exactly as in its schema, including the chosen x-one-of alternative.
   Ask only for unresolved values. This meta call immediately ends the episode.
+- Missing information MUST be reported by calling sys.ask_missing_info, not by
+  asking a plain-text question and stopping. An empty lookup or multiple matches
+  without a distinguishing fact leaves the target ID unresolved. Do not repeat
+  the same lookup with unchanged evidence instead of reporting the missing ID.
+- Before proposing a write, check required and x-one-of. If no alternative group
+  is complete, resolve one supported alternative or report its missing field;
+  do not emit a partial write. Do not ask for a contact ID if a valid supported
+  phone-number alternative is already available.
+- Example: if sms.send is available, message content is known, and lookup cannot
+  identify the recipient, emit this call instead of asking who to message:
+  <tool_call>
+  <function=sys.ask_missing_info>
+  <parameter=tool_name>
+sms.send
+</parameter>
+  <parameter=params>
+["contact_id"]
+</parameter>
+  </function>
+  </tool_call>
+  This is a format example; choose tool_name and params for the actual blocked task.
 - An unavailable capability is unsupported, not a missing parameter of a made-up
   tool. Complete supported parts; do not call an unrelated tool as a substitute.
 - Do not repeat completed actions or make unnecessary lookup or verification
-  calls. Once no executable task remains, answer briefly without a tool call.
+  calls. Answer briefly without a tool call only after supported tasks are done
+  and none remain blocked on required information.
   For a fully cancelled, unsupported, or no-action request, no tool call is needed.
 """
 
@@ -171,7 +193,11 @@ def parse_action(text, tools):
         # Remove only the template's framing newlines for strings.
         value = raw.removeprefix("\n").removesuffix("\n")
         kind = properties[key].get("type")
-        args[key] = value if kind == "string" else json.loads(value)
+        if kind == "boolean" and value.strip() in ("True", "False"):
+            # Qwen's native template renders boolean arguments with Python casing.
+            args[key] = value.strip() == "True"
+        else:
+            args[key] = value if kind == "string" else json.loads(value)
     return {"name": name, "arguments": args}
 
 def _episode(item, catalog, env, mode, cache, max_steps):
