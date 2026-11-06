@@ -4,9 +4,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-def build():
+def build(random200=False):
     payload = {name: (HERE/name).read_text() for name in
-               ("agent.py", "run.py", "transcribe.py", "test_agent.py", "requirements.txt", "validation_ids.txt")}
+               ("agent.py", "run.py", "scoring.py", "transcribe.py", "test_agent.py", "test_scoring.py", "requirements.txt", "validation_ids.txt")}
     cells = []
     def add(kind, source):
         cell = {"cell_type": kind, "metadata": {}, "source": source.splitlines(True)}
@@ -24,6 +24,8 @@ Không công khai notebook có output chứa dữ liệu cuộc thi.
     add("code", '''from pathlib import Path
 import json, os, subprocess, sys, zipfile
 PROFILE = "smoke"  # smoke: 8 mẫu; validation: 245 IDs cố định; public: toàn bộ public test
+SAMPLE_SIZE = 200  # random200: lấy ngẫu nhiên từ toàn bộ train, không thay thế
+SEED = 42
 MODE = "oracle"    # train: oracle hoặc asr; public bắt buộc asr
 DATA_ROOT = ""    # thư mục chứa train/ và public_test/; rỗng = tự tìm
 DATA_ZIP = ""     # tùy chọn ZIP cuộc thi; rỗng = tự tìm nếu chưa có thư mục
@@ -43,8 +45,9 @@ for name, content in PAYLOAD.items():
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r",
                 str(WORK/"requirements.txt")], check=True)
 subprocess.run([sys.executable, "-B", str(WORK/"test_agent.py")], check=True)
+subprocess.run([sys.executable, "-B", str(WORK/"test_scoring.py")], check=True)
 ''')
-    add("code", '''assert PROFILE in {"smoke", "validation", "public"}
+    add("code", '''assert PROFILE in {"smoke", "validation", "random200", "public"}
 split = "public_test" if PROFILE == "public" else "train"
 if split == "public_test":
     assert MODE == "asr", "Set MODE=asr for public test"
@@ -55,6 +58,13 @@ if DATA_ROOT:
 else:
     candidates = sorted({p.parent.parent for p in input_root.rglob(f"{split}.jsonl")
                          if p.parent.name == split})
+    if not candidates and PROFILE == "random200" and not DATA_ZIP:
+        # KaggleHub attaches/downloads the existing private dataset using the
+        # notebook's Kaggle identity; no credentials are embedded in source.
+        import kagglehub
+        dataset = Path(kagglehub.dataset_download("cymeu4l0t/zaloai-dataset"))
+        candidates = sorted({p.parent.parent for p in dataset.rglob(f"{split}.jsonl")
+                             if p.parent.name == split})
     if not candidates:
         archives = [Path(DATA_ZIP)] if DATA_ZIP else sorted(input_root.rglob("train+public_test.zip"))
         assert len(archives) == 1, "Set DATA_ROOT or DATA_ZIP explicitly"
@@ -74,6 +84,20 @@ assert (data_root/split/"zaic_tools"/"__init__.py").is_file()
 output = Path("/kaggle/working")/RUN_NAME
 assert not output.exists(), "Change RUN_NAME for a new run"
 selection = ["--ids", str(WORK/"validation_ids.txt")] if PROFILE == "validation" else []
+if PROFILE == "random200":
+    import hashlib, random
+    dataset_path = data_root/"train"/"train.jsonl"
+    all_ids = sorted(json.loads(line)["id"] for line in dataset_path.read_text().splitlines() if line.strip())
+    assert len(all_ids) == len(set(all_ids)), "Duplicate dataset IDs"
+    assert 0 < SAMPLE_SIZE <= len(all_ids)
+    selected_ids = sorted(random.Random(SEED).sample(all_ids, SAMPLE_SIZE))
+    (WORK/"selected_ids.txt").write_text("\\n".join(selected_ids) + "\\n")
+    (WORK/"selection.json").write_text(json.dumps({
+        "seed": SEED, "sample_size": SAMPLE_SIZE, "population_size": len(all_ids),
+        "dataset_sha256": hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
+        "selected_ids": selected_ids}, indent=2))
+    selection = ["--ids", str(WORK/"selected_ids.txt")]
+    print(f"Selected {SAMPLE_SIZE}/{len(all_ids)} train samples, seed={SEED}")
 if PROFILE == "smoke":
     selection += ["--limit", "8"]
 common = ["--data-root", str(data_root), "--split", split] + selection
@@ -92,13 +116,19 @@ command = [sys.executable, "-B", str(WORK/"run.py"), *common,
            "--max-steps", str(MAX_STEPS), "--output", str(output)]
 subprocess.run(command, check=True)
 ''')
-    add("code", '''print((output/"report.json").read_text())
+    add("code", '''import shutil
+if PROFILE == "random200":
+    for name in ("selected_ids.txt", "selection.json"):
+        shutil.copyfile(WORK/name, output/name)
+report = json.loads((output/"report.json").read_text())
+if PROFILE == "random200":
+    assert report["samples"] == SAMPLE_SIZE
+print(json.dumps({k: v for k, v in report.items() if k != "generation"}, indent=2))
 # Schema validation of actual submission; labels are never passed to inference.
 env = dict(os.environ, PYTHONPATH=str(data_root/split))
 subprocess.run([sys.executable, "-m", "zaic_tools", "--split", split,
                 "--root", str(data_root), "--validate", str(output/"submission.jsonl")],
                env=env, check=True)
-import shutil
 archive = shutil.make_archive(str(output), "zip", output)
 print("Artifacts:", archive)
 from IPython.display import FileLink, display
@@ -108,8 +138,22 @@ display(FileLink(str(Path(archive).relative_to("/kaggle/working"))))
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
         "language_info": {"name": "python", "version": "3.11"},
         "accelerator": "GPU"}, "nbformat": 4, "nbformat_minor": 4}
+    if random200:
+        notebook["cells"][0]["source"] = ("# Qwen3.5-4B — Random 200 / transcript only\n\n"
+            "Chọn ngẫu nhiên 200 mẫu từ toàn bộ train với seed=42. Dùng audio_text cho user hiện tại và history; không chạy ASR, không fine-tune.\n"
+            "Bật Internet và GPU T4, rồi Run All. Chỉ GPU0 được dùng. Dataset riêng tư cymeu4l0t/zaloai-dataset được tìm trong Input hoặc nạp bằng KaggleHub nếu chưa gắn.\n"
+            "Kết quả: score_100 (F1 gated by state hash), hash_accuracy, tool_call_f1, statuses và trace từng mẫu.\n"
+            "Scorer local theo công thức công bố; fuzzy tokenizer có thể khác BTC. Không áp latency gate.\n"
+            "Danh sách ID, seed và SHA256 dataset được lưu trong artifacts. Mẫu lỗi vẫn tính trong mẫu số 200.\n"
+            "Chưa chạy GPU trước khi lưu notebook. Giữ notebook/output riêng tư vì có dữ liệu cuộc thi.\n").splitlines(True)
+        config = "".join(notebook["cells"][1]["source"])
+        config = config.replace('PROFILE = "smoke"', 'PROFILE = "random200"')
+        config = config.replace('RUN_NAME = "qwen35_smoke_01"', 'RUN_NAME = "qwen35_random200_01"')
+        notebook["cells"][1]["source"] = config.splitlines(True)
     return notebook
 
 if __name__ == "__main__":
     (HERE/"kaggle_qwen35_4b.ipynb").write_text(
         json.dumps(build(), ensure_ascii=False, indent=1) + "\n")
+    (HERE/"kaggle_qwen35_4b_random200.ipynb").write_text(
+        json.dumps(build(random200=True), ensure_ascii=False, indent=1) + "\n")

@@ -8,6 +8,7 @@ import sys
 import time
 
 from agent import messages_for, run_episode
+from scoring import score
 
 class HFGenerator:
     def __init__(self, model_id, revision, max_input, max_new_tokens):
@@ -89,6 +90,7 @@ def main():
         messages_for(row, a.mode, cache)
     catalog_file = root/a.split/f"{a.split}_tools_catalog.json"
     catalog = json.loads(catalog_file.read_text())
+    scoring_catalog = {t["name"]: t for app in catalog["apps"] for t in app["tools"]}
     # Import exactly the BTC package for this split in this fresh CLI process.
     sys.path.insert(0, str(root/a.split))
     from zaic_tools import ToolEnv, state_hash
@@ -117,7 +119,12 @@ def main():
             if a.split == "train":
                 initial = json.loads((root/a.split/f"{a.split}_environment"/row["id"]/"state.json").read_text())
                 initial.update(row["label"]["final_state"])
-                detail["canonical_state_match"] = prediction["state_hash"] == state_hash(initial)
+                reference = {"id": row["id"], "tool_calls": row["label"]["tool_calls"],
+                             "state_hash": state_hash(initial)}
+                metrics = score(prediction, reference, scoring_catalog)
+                detail.update({key: metrics[key] for key in
+                               ("score", "hash_match", "tool_f1", "matched", "pred_calls", "gold_calls")})
+                detail["canonical_state_match"] = metrics["hash_match"]
                 detail["exact_call_sequence_match"] = prediction["tool_calls"] == row["label"]["tool_calls"]
             detail["seconds"] = time.monotonic() - tick
             submissions.write(json.dumps(prediction, ensure_ascii=False) + "\n")
@@ -129,12 +136,16 @@ def main():
     from collections import Counter
     report = {"samples": len(rows), "mode": a.mode, "seconds": time.monotonic()-started,
               "statuses": dict(Counter(r["status"] for r in summaries)),
-              "note": "Local diagnostics, not the official fuzzy call F1/composite score.",
+              "note": "Local approximation of published hash-gated F1; fuzzy tokenization may differ from BTC. No latency gate; model load and ASR excluded.",
               "generation": generator.stats,
               "peak_cuda_gib": generator.torch.cuda.max_memory_allocated()/2**30}
     if a.split == "train":
         for metric in ("canonical_state_match", "exact_call_sequence_match"):
             report[metric] = sum(r[metric] for r in summaries)/len(rows)
+        report["score_100"] = 100 * sum(r["score"] for r in summaries)/len(rows)
+        report["hash_accuracy"] = sum(r["hash_match"] for r in summaries)/len(rows)
+        report["hash_accuracy_percent"] = 100 * report["hash_accuracy"]
+        report["tool_call_f1"] = sum(r["tool_f1"] for r in summaries)/len(rows)
     (a.output/"report.json").write_text(json.dumps(report, indent=2))
 
 if __name__ == "__main__":

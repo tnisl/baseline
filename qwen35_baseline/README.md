@@ -6,6 +6,15 @@ Không phụ thuộc các thay đổi local hay runtime Planner/Caller của rep
 
 ## Kaggle
 
+Notebook riêng cho kiểm tra transcript: `kaggle_qwen35_4b_random200.ipynb`.
+[Mở trên Kaggle](https://www.kaggle.com/code/cymeu4l0t/lifemate-qwen35-4b-random200).
+Mặc định chọn ngẫu nhiên 200 mẫu từ toàn bộ train, không thay thế, seed=42.
+Đọc audio_text cho user hiện tại và history; không cần ASR. Tìm dataset
+cymeu4l0t/zaloai-dataset trong Input hoặc nạp qua KaggleHub nếu chưa gắn.
+Bấm Run All sau khi bật GPU và Internet trên bản Kaggle riêng tư.
+Đổi SEED để lấy tập khác; selected_ids.txt, selection.json lưu ID và SHA256 dữ liệu.
+Mọi mẫu lỗi vẫn nằm trong mẫu số 200; không loại mẫu theo kết quả model.
+
 Upload kaggle_qwen35_4b.ipynb vào notebook **riêng tư**, bật Internet và GPU T4.
 Notebook tự nhúng source, không cần clone repo hay GitHub token.
 Gắn dataset cuộc thi riêng tư (thư mục hoặc train+public_test.zip).
@@ -49,8 +58,13 @@ python qwen35_baseline/run.py --data-root ../train+public_test --split train --i
 - Dừng khi model không sinh call, khi gọi sys.ask_missing_info, lỗi hoặc hết budget.
 - Không truncate input; prompt quá dài và output thiếu EOS được ghi là lỗi.
 - Mọi mẫu vẫn có dòng submission, kể cả mẫu lỗi; lỗi có trace/status riêng.
-- Exact call sequence và canonical state match là diagnostic, không phải điểm BTC
-  (không triển khai fuzzy argument F1/composite score).
+- score_100 = 100 × trung bình tool-call F1 khi hash đúng (hash sai thì điểm 0).
+  Matching một-một tối đa, không xét thứ tự; fuzzy token F1 > 0.6 với Unicode NFC
+  và lowercase. Hai danh sách call rỗng có F1=1; không có match thì F1=0.
+  Scorer local theo công thức công bố, tokenizer fuzzy có thể khác BTC.
+  Không áp latency gate; đây là baseline transcript, không phải điểm end-to-end audio.
+- hash_accuracy / hash_accuracy_percent: tỷ lệ hash đúng toàn bộ state canonical.
+  tool_call_f1 báo riêng, chưa gate bởi hash; exact_call_sequence_match là diagnostic.
 - Không giới hạn agent ở các tool từng có nhãn train: public có tool mới.
 - Output mới phải dùng thư mục mới. Baseline không tự resume và không reset mẫu.
 - Artifact gồm config.json, submission.jsonl, traces.jsonl, report.json.
@@ -60,6 +74,7 @@ python qwen35_baseline/run.py --data-root ../train+public_test --split train --i
 
 ~~~bash
 python -B qwen35_baseline/test_agent.py
+python -B qwen35_baseline/test_scoring.py
 python -B qwen35_baseline/make_notebook.py
 ~~~
 
@@ -69,3 +84,4 @@ missing-info, malformed calls và step budget. Không chứng minh chất lượ
 Nguồn giao thức:
 https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/chat_template.jinja
 https://huggingface.co/docs/transformers/model_doc/qwen3_5
+https://challenge.zalo.ai/portal/lifemate (Evaluation)
