@@ -1,4 +1,4 @@
-"""Test dispatch and input routing without allocating a real model or GPU."""
+"""Verify vLLM scheduling, unrestricted decoding, and per-row errors without GPUs."""
 import contextlib
 import io
 import sys
@@ -6,115 +6,96 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
-from run import HFGenerator
+from run import VLLMGenerator
+
+
+def completion(text="Done", finish="stop"):
+    return SimpleNamespace(outputs=[SimpleNamespace(
+        text=text, finish_reason=finish, token_ids=[11, 99])])
 
 
 class PlacementTests(unittest.TestCase):
     def setUp(self):
-        self.model = MagicMock()
-        self.model.eval.return_value = self.model
-        self.model.hf_device_map = {"layers.0": 0, "layers.16": 1}
-        self.model.get_input_embeddings.return_value.weight.device = "cuda:1"
-        self.model.generation_config.eos_token_id = 99
-        self.model.generate.return_value.__getitem__.return_value.tolist.return_value = [[99]]
-        self.tokens = MagicMock()
-        self.tokens.shape = (1, 2)
         self.tokenizer = MagicMock()
-        self.mask = MagicMock()
-        self.tokenizer.return_value = {"input_ids": [7, 8], "attention_mask": [1, 1]}
-        self.tokenizer.pad.return_value = {"input_ids": self.tokens, "attention_mask": self.mask}
-        self.tokenizer.pad_token_id = 0
-        self.tokenizer.decode.return_value = "Done"
-        self.factory = MagicMock()
-        self.factory.from_pretrained.return_value = self.model
-        tokenizer_factory = MagicMock()
-        tokenizer_factory.from_pretrained.return_value = self.tokenizer
-        self.cuda = SimpleNamespace(is_available=lambda: True, device_count=lambda: 2)
-        self.torch = SimpleNamespace(cuda=self.cuda, float16="float16",
-                                     inference_mode=contextlib.nullcontext)
-        self.modules = {"torch": self.torch, "transformers": SimpleNamespace(
-            AutoModelForImageTextToText=self.factory, AutoTokenizer=tokenizer_factory)}
+        self.tokenizer.return_value = {"input_ids": [7, 8]}
+        self.tokenizer.convert_tokens_to_ids.return_value = 99
+        self.model = MagicMock()
+        self.model.get_tokenizer.return_value = self.tokenizer
+        self.model.llm_engine.model_config.hf_config._commit_hash = "resolved"
+        self.model.generate.return_value = [completion()]
+        self.factory = MagicMock(return_value=self.model)
+        self.sampling = MagicMock()
+        self.cuda = SimpleNamespace(is_available=lambda: True, device_count=lambda: 2,
+                                    mem_get_info=lambda i: (2**30, 4*2**30))
+        self.modules = {"torch": SimpleNamespace(cuda=self.cuda), "vllm": SimpleNamespace(
+            LLM=self.factory, SamplingParams=self.sampling)}
 
     def load(self, count=2):
         with patch.dict(sys.modules, self.modules), contextlib.redirect_stdout(io.StringIO()):
-            return HFGenerator("model", "revision", 8192, 768, count)
+            return VLLMGenerator("model", "revision", 16384, 768, count)
 
-    def test_two_gpu_dispatch_and_embedding_input_device(self):
+    def test_tensor_parallel_memory_settings_and_no_format_enforcer(self):
         generator = self.load()
-        kwargs = self.factory.from_pretrained.call_args.kwargs
-        self.assertEqual(kwargs["device_map"], "balanced")
-        self.assertEqual(kwargs["max_memory"], {0: "3GiB", 1: "10GiB"})
-        self.assertEqual(kwargs["dtype"], "float16")
+        kwargs = self.factory.call_args.kwargs
+        for key, value in {"tensor_parallel_size": 2, "dtype": "float16",
+                           "max_model_len": 17152, "max_num_seqs": 2,
+                           "max_num_batched_tokens": 1024, "gpu_memory_utilization": 0.80,
+                           "enable_chunked_prefill": True, "enforce_eager": True,
+                           "language_model_only": True, "enable_prefix_caching": False,
+                           "disable_custom_all_reduce": True}.items():
+            self.assertEqual(kwargs[key], value)
+        self.assertEqual(self.sampling.call_args.kwargs, {
+            "temperature": 0, "max_tokens": 768,
+            "structured_outputs": None, "stop_token_ids": [99]})
         self.assertEqual(generator([], []), "Done")
-        self.tokens.to.assert_called_once_with("cuda:1")
-        self.mask.to.assert_called_once_with("cuda:1")
-        self.assertEqual(self.tokenizer.padding_side, "left")
-        generator.tokenizer.apply_chat_template.assert_called_once_with(
+        self.tokenizer.apply_chat_template.assert_called_once_with(
             [], tools=[], tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        self.assertEqual(generator.resolved_revision, "resolved")
 
-    def test_batch_generates_once_and_trims_each_row_at_first_eos(self):
+    def test_four_requests_have_independent_unpadded_prompts_and_results(self):
         generator = self.load()
-        rows = [[10, 99, 0], [11, 12, 99], [13, 14, 15], [99, 0, 0]]
-        self.model.generate.return_value.__getitem__.return_value.tolist.return_value = rows
-        self.tokenizer.decode.side_effect = lambda tokens, **kwargs: str(tokens)
+        encoded = [{"input_ids": [1]}, {"input_ids": [2, 3]},
+                   {"input_ids": [4, 5, 6]}, {"input_ids": [7]}]
+        self.tokenizer.side_effect = encoded
+        self.model.generate.return_value = [completion("A"), completion("B"),
+                                            completion("truncated", "length"), completion("D")]
         results = generator.generate_batch([([], [])] * 4)
-        self.model.generate.assert_called_once()
-        self.assertEqual(results[:2], ["[10, 99]", "[11, 12, 99]"])
+        self.assertEqual(results[:2], ["A", "B"])
         self.assertIsInstance(results[2], ValueError)
-        self.assertEqual(results[3], "[99]")
-        self.assertEqual(generator.stats[0]["batch_size"], 4)
-        self.assertEqual(generator.stats[0]["output_tokens"], [2, 3, 3, 1])
-        self.tokenizer.pad.assert_called_once_with(
-            [self.tokenizer.return_value] * 4, padding=True, return_tensors="pt")
-        self.model.generate.return_value.__getitem__.assert_called_once_with(
-            (slice(None), slice(2, None)))
+        self.assertEqual(results[3], "D")
+        self.model.generate.assert_called_once_with(
+            [{"prompt_token_ids": row["input_ids"]} for row in encoded],
+            sampling_params=generator.sampling, use_tqdm=False)
+        self.tokenizer.pad.assert_not_called()
+        self.assertEqual(generator.stats[0]["input_tokens"], [1, 2, 3, 1])
 
     def test_overlong_prompt_fails_only_its_own_row(self):
         generator = self.load()
-        short = {"input_ids": [7, 8], "attention_mask": [1, 1]}
-        self.tokenizer.side_effect = [short, {"input_ids": [1] * 8193}, short]
-        self.model.generate.return_value.__getitem__.return_value.tolist.return_value = [[99], [99]]
-        results = generator.generate_batch([([], [])] * 3)
+        self.tokenizer.side_effect = [{"input_ids": [1]}, {"input_ids": [1] * 16385}]
+        results = generator.generate_batch([([], [])] * 2)
         self.assertEqual(results[0], "Done")
         self.assertIsInstance(results[1], ValueError)
-        self.assertIn("8193", str(results[1]))
-        self.assertEqual(results[2], "Done")
-        self.tokenizer.pad.assert_called_once_with([short, short], padding=True, return_tensors="pt")
-
-    def test_shared_cuda_failure_is_reported_for_every_affected_row(self):
-        generator = self.load()
-        self.model.generate.side_effect = RuntimeError("CUDA out of memory")
-        results = generator.generate_batch([([], [])] * 4)
-        self.assertEqual(len(results), 4)
-        self.assertTrue(all(isinstance(result, RuntimeError) for result in results))
-        self.model.generate.assert_called_once()
+        self.assertEqual(len(self.model.generate.call_args.args[0]), 1)
 
     def test_requires_two_visible_gpus_before_loading(self):
         self.cuda.device_count = lambda: 1
         with self.assertRaisesRegex(RuntimeError, "T4 x2"):
             self.load()
-        self.factory.from_pretrained.assert_not_called()
+        self.factory.assert_not_called()
 
-    def test_records_actual_parameter_memory_per_gpu(self):
-        self.model.parameters.return_value = [
-            SimpleNamespace(device=SimpleNamespace(type="cuda", index=0),
-                            numel=lambda: 2**29, element_size=lambda: 2),
-            SimpleNamespace(device=SimpleNamespace(type="cuda", index=1),
-                            numel=lambda: 2**30, element_size=lambda: 2)]
+    def test_shared_failure_is_reported_without_retry(self):
         generator = self.load()
-        self.assertEqual(generator.parameter_gib_per_gpu, {"0": 1.0, "1": 2.0})
+        self.model.generate.side_effect = RuntimeError("engine failure")
+        results = generator.generate_batch([([], [])] * 4)
+        self.assertTrue(all(isinstance(result, RuntimeError) for result in results))
+        self.model.generate.assert_called_once()
 
-    def test_rejects_single_gpu_map_and_cpu_offload(self):
-        for mapping in ({"": 0}, {"a": 0, "b": 1, "c": "cpu"}):
-            self.model.hf_device_map = mapping
-            with self.subTest(mapping=mapping), self.assertRaisesRegex(RuntimeError, "must span"):
-                self.load()
-
-    def test_explicit_one_gpu_mode(self):
-        self.model.hf_device_map = {"": 0}
-        generator = self.load(1)
-        self.assertEqual(generator.num_gpus, 1)
-        self.assertEqual(self.factory.from_pretrained.call_args.kwargs["device_map"], {"": 0})
+    def test_driver_memory_samples_include_worker_usage(self):
+        generator = self.load()
+        self.assertEqual(generator.observed_gpu_used_gib_per_gpu, {"0": 3, "1": 3})
+        self.cuda.mem_get_info = lambda i: (2**30, 6*2**30)
+        generator.sample_gpu_memory()
+        self.assertEqual(generator.observed_gpu_used_gib_per_gpu, {"0": 5, "1": 5})
 
 
 if __name__ == "__main__":

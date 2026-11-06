@@ -1,142 +1,93 @@
-# Qwen3.5-4B LifeMate baseline
+# Qwen3.5-4B LifeMate baseline — vLLM
 
-Một model Qwen/Qwen3.5-4B chưa fine-tune chọn tool và arguments từng bước.
-Native Qwen3.5 XML tool calls, non-thinking, greedy, FP16 chia trên hai GPU.
-Không phụ thuộc các thay đổi local hay runtime Planner/Caller của repo.
+Một model Qwen/Qwen3.5-4B chưa fine-tune, native XML tool calling, non-thinking,
+greedy FP16. vLLM offline LLM.generate, không cần API server/OpenAI SDK.
 
 ## Kaggle
 
-Notebook riêng cho kiểm tra transcript: `kaggle_qwen35_4b_random200.ipynb`.
-[Mở trên Kaggle](https://www.kaggle.com/code/cymeu4l0t/lifemate-qwen35-4b-random200).
-Giữ cấu hình Kaggle v17 của user: 100 mẫu ngẫu nhiên, không thay thế, seed=42,
-batch 1 và MAX_INPUT=16384. Đặt SAMPLE_SIZE=200 để chạy lại 200 mẫu.
-Đọc audio_text cho user hiện tại và history; không cần ASR. Tìm dataset
-cymeu4l0t/zaloai-dataset trong Input hoặc nạp qua KaggleHub nếu chưa gắn.
-Bấm Run All sau khi chọn **GPU T4 x2** và bật Internet trên bản Kaggle riêng tư.
-NUM_GPUS=2 mặc định. Model dùng device_map="balanced", ngân sách trọng số
-GPU 0 là 3GiB, GPU 1 là 10GiB, chuyển thêm layer sang GPU 1 để chừa VRAM
-inference cho GPU 0. Ngân sách này không giới hạn tổng VRAM lúc chạy, không bảo
-đảm hai GPU có cùng peak; cần đo trên GPU thật. Runtime yêu cầu model thực sự nằm
-trên cả GPU0/GPU1, không offload CPU/disk. Đây là model parallel, không phải
-hai replica hoặc tensor parallel; không hứa tăng tốc gấp đôi.
-Không tự truncate prompt. BATCH_SIZE=1 trong notebook validation theo cấu hình
-user hiện tại; notebook smoke tổng quát và CLI vẫn mặc định 4. Mỗi lượt generate
-nhận tối đa BATCH_SIZE prompt, left padding kèm
-attention mask; mỗi mẫu có history, schema tool và ToolEnv riêng. Mẫu dừng/lỗi
-được bỏ khỏi lượt tiếp theo, batch cuối có thể nhỏ hơn 4. Không ghép transcript
-thành một hội thoại. EOS và giới hạn input được kiểm riêng từng mẫu.
-RUN_NAME mặc định là qwen35_random100_2gpu_rebalance_01, không ghi đè output cũ.
-Đổi SEED để lấy tập khác; selected_ids.txt, selection.json lưu ID và SHA256 dữ liệu.
-Mọi mẫu lỗi vẫn nằm trong mẫu số SAMPLE_SIZE; không loại mẫu theo kết quả model.
+[Mở notebook riêng tư](https://www.kaggle.com/code/cymeu4l0t/lifemate-qwen35-4b-random200).
+File local: kaggle_qwen35_4b_random200.ipynb. Giữ cấu hình user hiện tại: 100 mẫu
+ngẫu nhiên, seed=42, BATCH_SIZE=4, MAX_INPUT=16384. Đặt SAMPLE_SIZE=200 nếu cần.
+Dùng audio_text cho yêu cầu hiện tại và history; không chạy ASR, không dùng label
+trong prompt. Dataset riêng tư được tìm trong Input hoặc nạp qua KaggleHub.
 
-Upload kaggle_qwen35_4b.ipynb vào notebook **riêng tư**, bật Internet và GPU T4 x2.
-Notebook tự nhúng source, không cần clone repo hay GitHub token.
-Gắn dataset cuộc thi riêng tư (thư mục hoặc train+public_test.zip).
-Đổi DATA_ROOT/DATA_ZIP nếu có nhiều dataset trùng cấu trúc.
+Dừng session HF cũ và bắt đầu session mới, bật Internet + GPU T4 x2, rồi Run All.
+Notebook nhúng source, không cần GitHub token. vLLM được pin 0.33.0; pip giải
+quyết phiên bản torch/CUDA theo package, không dùng lại môi trường training Qwen3.
+Chưa chạy GPU để xác nhận kernel/driver Qwen3.5 trên Kaggle T4 trong lần chuyển này.
 
-1. PROFILE="smoke", MODE="oracle": chạy 8 mẫu train để kiểm tra tải model và runtime.
-2. PROFILE="validation", MODE="oracle": đo agent trên 245 IDs của validation hiện có.
-3. PROFILE="validation", MODE="asr": thêm ASR_MODEL_DIR, đo cả audio hiện tại và history.
-4. PROFILE="public", MODE="asr": chạy toàn bộ public và xuất submission.jsonl.
+## Cấu hình bộ nhớ
 
-ASR_MODEL_DIR chứa encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt của BTC.
-ASR CPU sherpa-onnx, không tải model ASR ngoài; không dùng oracle fallback.
-Muốn dùng transcript có sẵn, chạy CLI với --transcripts (JSON audio-path -> text).
-Các nhóm tối đa BATCH_SIZE mẫu chạy lần lượt với một model chia layer trên hai GPU.
-CLI có --batch-size (mặc định 4); đổi BATCH_SIZE trong notebook nếu cần.
-Nếu CUDA OOM khi generate batch, mọi mẫu đang generate trong batch đó được ghi
-lỗi, không tự retry hoặc giảm batch; kết quả tool đã chạy trước lỗi vẫn được giữ.
-CLI có --num-gpus 1 để chủ động dùng một GPU, không tự fallback khi thiếu GPU.
-Không cài dependency của baseline vào môi trường Transformers 4.x đang train Qwen3.
-Không cần flash-attn/FLA: dùng SDPA và đường fallback Gated DeltaNet của Transformers.
-Chưa chạy GPU Kaggle trong lần triển khai; smoke là bước kiểm chứng tương thích/VRAM.
-Version packages, resolved HF revision, device map, parameter_gib_per_gpu (trọng số,
-không gồm buffers/cache/activations), token counts, thời gian và peak VRAM từng GPU
-được lưu để tái lập. Có thể cố định REVISION bằng commit HF hoặc dùng snapshot local.
-Generation stats ghi batch size, token counts từng mẫu và chiều dài input sau padding.
-seconds từng mẫu là thời gian qua các lượt batch của mẫu đó, không phải latency
-inference độc lập; report.seconds là tổng thời gian đánh giá. Batch 4 chưa kiểm VRAM GPU.
+- tensor_parallel_size=2: chia trọng số trong từng layer trên hai GPU, thay cho
+  device_map chia layer; không tạo hai replica.
+- dtype=float16; language_model_only=True, bỏ tải vision encoder cho transcript.
+- gpu_memory_utilization=0.80 mỗi GPU, chừa headroom; không bảo đảm hết OOM.
+- enable_chunked_prefill=True, max_num_batched_tokens=1024: xử lý prefill theo
+  từng phần, không cắt prompt hay giảm context xuống 1024.
+- max_num_seqs=2: batch 4 được scheduler xếp lịch, tối đa 2 sequence đồng thời.
+- enforce_eager=True: tắt CUDA graphs/compile để giảm overhead bộ nhớ.
+  Đây là tùy chọn CUDA execution, khác với format enforcer.
+- disable_custom_all_reduce=True: dùng collective chuẩn thay custom all-reduce.
+- enable_prefix_caching=False: khởi đầu không dùng prefix cache cho hybrid state.
+- max_model_len=MAX_INPUT+MAX_NEW_TOKENS (17152 mặc định). Input vượt MAX_INPUT
+  báo lỗi, không truncate. Không giảm output budget âm thầm.
 
-## Local CLI
+GPU_MEMORY_UTILIZATION, MAX_NUM_SEQS, MAX_NUM_BATCHED_TOKENS chỉnh ở config cell.
+Nếu cần giảm concurrency, dùng MAX_NUM_SEQS=1. Ghi nhận engine_settings và package
+versions trong config.json. observed_gpu_used_gib_per_gpu lấy từ driver sau load
+và các lượt generate hoàn tất, gồm bộ nhớ worker; không phải peak tức thời.
+Không dùng torch.max_memory_allocated ở process cha để đại diện worker vLLM.
 
-Chạy trong paper_solution với Python >=3.11 và CUDA, môi trường riêng:
+## Không có format enforcer
 
-~~~bash
+SamplingParams(structured_outputs=None), không grammar/JSON schema/guided decoder,
+không tool_choice required và không gọi LLM.chat để tự ép structured tool output.
+Tools vẫn được đưa đầy đủ vào chat template; model sinh text tự do. Prompt vẫn
+hướng dẫn XML, nhưng không khóa token bằng schema. Stop token im_end kết thúc lượt
+chat; không sửa XML hoặc tự điền arguments.
+
+Parser lấy tool_call đầu tiên ngoài thinking, bỏ phần tự sinh tiếp. Mỗi call được
+kiểm schema bằng env.validate rồi thực thi trên ToolEnv riêng của mẫu. Call không
+hợp lệ báo lỗi, không tìm call khác thay thế. Kết quả JSON thật được thêm với
+role=tool cho lượt sau. Call bên trong thinking và observation model tự bịa không
+được thực thi hoặc thêm vào history. Raw output vẫn lưu trong traces.jsonl.
+Generation hết token budget mà chưa stop được ghi lỗi, không chạy action cắt dở.
+
+## Nghiệp vụ và scoring
+
+SYSTEM trong agent.py giữ quy tắc history/sửa lời, tham chiếu, điều kiện/ngoại lệ,
+chọn đối tượng, ngày giờ theo context, giữ thời lượng lịch, required/x-one-of/x-ref,
+phân biệt ok và done, làm phần độc lập trước khi hỏi thiếu thông tin. Kind/Returns
+được bổ sung vào description; parameters giữ nguyên. Tool mới của public không bị
+lọc theo nhãn train. Không đọc state trực tiếp cho inference, không replay history.
+
+sys.ask_missing_info kết thúc episode. Mỗi mẫu một ToolEnv, tối đa MAX_STEPS bước,
+không reset/retry ngầm. Mẫu lỗi vẫn tính trong mẫu số SAMPLE_SIZE.
+score_100 là F1 tool call gated bởi state hash; hash_accuracy báo riêng. Scorer local
+matching một-một, fuzzy token F1 > 0.6 có thể khác tokenizer BTC; không latency gate.
+Trọng số model không lượng tử hóa trong lần chuyển backend này; chất lượng vLLM
+cần đo lại, không suy ra từ kết quả HF.
+
+Artifacts: config.json, submission.jsonl, traces.jsonl, report.json, selected_ids.txt,
+selection.json và ZIP. Không công khai output có dữ liệu cuộc thi.
+
+## CLI và kiểm tra
+
+```bash
 pip install -r qwen35_baseline/requirements.txt
-python qwen35_baseline/run.py --data-root ../train+public_test --split train --ids qwen35_baseline/validation_ids.txt --mode oracle --limit 8 --output outputs/qwen35_smoke_01
-python qwen35_baseline/transcribe.py --data-root ../train+public_test --split train --ids qwen35_baseline/validation_ids.txt --model-dir ../asr_model --output outputs/qwen35_asr.json
-python qwen35_baseline/run.py --data-root ../train+public_test --split train --ids qwen35_baseline/validation_ids.txt --mode asr --transcripts outputs/qwen35_asr.json --output outputs/qwen35_validation_asr_01
-~~~
-
-## Contract và đánh giá
-
-- Schema từ catalog đúng split, lọc installed_apps; sys.ask_missing_info luôn có.
-- Mô tả tool kèm Kind (read/write/meta) và Returns khi catalog có; giữ nguyên
-  parameters, gồm required, x-one-of, x-ref, x-match, enum, format và các giới hạn.
-- History được đưa vào prompt nhưng không replay. Chỉ một ToolEnv/mẫu.
-- Không đưa label, final_state hoặc file state vào prompt. State train chỉ đọc
-  sau inference để tính diagnostic hash của state gold đầy đủ.
-- Mỗi generation một call, tối đa 8 quyết định; mỗi bước đọc observation thật.
-- Vẫn prompt enable_thinking=False. Parser bỏ qua thinking và lấy tool_call đầu
-  tiên ngoài block think, bỏ mọi nội dung/call phía sau. Sau call đó, model nhận
-  observation thật từ ToolEnv ở lượt generate mới; không dùng hội thoại model
-  tự sinh tiếp. Raw output đầy đủ vẫn lưu trong trace. Không sửa arguments.
-  Block tool đầu tiên sai/incomplete vẫn báo lỗi, không tìm call khác để thay.
-  Nếu không có call ngoài thinking (kể cả thinking chưa đóng), mẫu dừng không call.
-- env.validate kiểm schema trước execution. Proposal lỗi được log, không chạy.
-  Không repair/retry/reset, không giấu các call đã thực thi.
-- Dừng khi model không sinh call, khi gọi sys.ask_missing_info, lỗi hoặc hết budget.
-- Không truncate input; prompt quá dài và output thiếu EOS được ghi là lỗi.
-- Mọi mẫu vẫn có dòng submission, kể cả mẫu lỗi; lỗi có trace/status riêng.
-- score_100 = 100 × trung bình tool-call F1 khi hash đúng (hash sai thì điểm 0).
-  Matching một-một tối đa, không xét thứ tự; fuzzy token F1 > 0.6 với Unicode NFC
-  và lowercase. Hai danh sách call rỗng có F1=1; không có match thì F1=0.
-  Scorer local theo công thức công bố, tokenizer fuzzy có thể khác BTC.
-  Không áp latency gate; đây là baseline transcript, không phải điểm end-to-end audio.
-- hash_accuracy / hash_accuracy_percent: tỷ lệ hash đúng toàn bộ state canonical.
-  tool_call_f1 báo riêng, chưa gate bởi hash; exact_call_sequence_match là diagnostic.
-- Không giới hạn agent ở các tool từng có nhãn train: public có tool mới.
-- Output mới phải dùng thư mục mới. Baseline không tự resume và không reset mẫu.
-- Artifact gồm config.json, submission.jsonl, traces.jsonl, report.json.
-  Không commit dữ liệu cuộc thi, transcript, prompt thực tế hoặc model weights.
-
-## Quy tắc nghiệp vụ trong prompt
-
-SYSTEM trong agent.py hướng dẫn dùng history đã thực thi để phân giải tham chiếu,
-tận dụng ID đã biết và áp dụng sửa lời vào đúng tác vụ. Yêu cầu lặp lại rõ ràng
-của user vẫn là công việc mới. Các tác vụ phụ thuộc được thực hiện sau khi có
-evidence; điều kiện sai chỉ bỏ nhánh tương ứng. Lọc đủ điều kiện/ngoại lệ, chọn
-đúng đối tượng theo thuộc tính và so sánh dữ liệu thực thay vì lấy phần tử đầu.
-
-Ngày giờ tương đối dựa trên context; cộng/trừ qua ngày, giữ thời lượng khi dời
-lịch nếu user không đổi thời lượng. Không đoán giờ bắt buộc từ ngày đơn thuần.
-x-one-of cần đủ ít nhất một nhóm bên cạnh required; x-ref dùng ID đã biết hoặc
-lookup. Giữ kiểu dữ liệu, số điện thoại dạng chuỗi, ý nghĩa nội dung và các field
-không được yêu cầu sửa; không bịa giá trị optional hoặc default.
-
-ok=true chưa có nghĩa hành động thành công: đọc done, message và dữ liệu trả về.
-Không xem danh sách rỗng hay done=false là thành công, không lặp nguyên một write
-thất bại. Làm xong phần độc lập được hỗ trợ trước khi gọi missing-info kết thúc
-episode; phân biệt thiếu tham số với capability không được hỗ trợ.
-
-Đây là chỉ dẫn cho model, không phải bộ luật tự thi hành. Tests kiểm tra schema,
-metadata và observation được truyền đúng; cần chạy validation để đo mức model
-tuân thủ và tác động lên score/hash accuracy. Prompt dài hơn vẫn chịu MAX_INPUT
-như trước, không tự truncate hay tăng budget.
-
-## Kiểm tra và tạo lại notebook
-
-~~~bash
-python -B qwen35_baseline/test_agent.py
-python -B qwen35_baseline/test_scoring.py
-python -B qwen35_baseline/test_placement.py
+python qwen35_baseline/run.py --data-root ../train+public_test --split train --mode oracle --num-gpus 2 --batch-size 4 --max-input 16384 --gpu-memory-utilization 0.80 --max-num-seqs 2 --max-num-batched-tokens 1024 --limit 8 --output outputs/qwen35_vllm_smoke
+python -B -m unittest discover -s qwen35_baseline -p 'test_*.py'
 python -B qwen35_baseline/make_notebook.py
-~~~
+```
 
-Tests dùng fake generator/env để kiểm observation, history, ASR, schema rejection,
-missing-info, malformed calls và step budget. Không chứng minh chất lượng model/GPU.
+PROFILE=smoke chạy 8 mẫu; validation dùng 245 IDs cố định; random200 dùng
+SAMPLE_SIZE mẫu; public chạy toàn bộ public_test và bắt buộc MODE=asr.
+ASR dùng model Zipformer ONNX BTC qua transcribe.py trên CPU; đặt ASR_MODEL_DIR
+chứa encoder.onnx, decoder.onnx, joiner.onnx và tokens.txt. CLI --transcripts nhận
+JSON audio-path -> text, không dùng oracle fallback.
 
-Nguồn giao thức:
-https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/chat_template.jinja
-https://huggingface.co/docs/transformers/model_doc/qwen3_5
-https://challenge.zalo.ai/portal/lifemate (Evaluation)
+Tests CPU mock vLLM để kiểm cấu hình TP, scheduler, không format enforcer, input
+không padding, lỗi từng mẫu, observation và scoring; không xác nhận VRAM/kernel.
+
+Nguồn: https://docs.vllm.ai/en/latest/configuration/optimization/
+https://github.com/vllm-project/recipes/blob/main/Qwen/Qwen3.5.md

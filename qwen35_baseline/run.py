@@ -10,45 +10,47 @@ import time
 from agent import messages_for, run_batch
 from scoring import score
 
-class HFGenerator:
-    def __init__(self, model_id, revision, max_input, max_new_tokens, num_gpus=2):
+class VLLMGenerator:
+    def __init__(self, model_id, revision, max_input, max_new_tokens, num_gpus=2,
+                 gpu_memory_utilization=0.80, max_num_seqs=2, max_num_batched_tokens=1024):
+        import os
+        os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
         import torch
-        from transformers import AutoModelForImageTextToText, AutoTokenizer
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA GPU required; run the Kaggle notebook")
-        if torch.cuda.device_count() < num_gpus:
+        from vllm import LLM, SamplingParams
+        if not torch.cuda.is_available() or torch.cuda.device_count() < num_gpus:
             raise RuntimeError(f"Requested {num_gpus} GPUs; select GPU T4 x2 in Kaggle settings")
-        self.torch = torch
-        self.num_gpus = num_gpus
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
-        self.tokenizer.padding_side = "left"
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        # GPU 0 also handles generation inputs/outputs. Move more weights to GPU 1
-        # to leave room for runtime activations; these are weight-placement budgets.
-        placement = {"device_map": {"": 0}} if num_gpus == 1 else {
-            "device_map": "balanced", "max_memory": {0: "3GiB", 1: "10GiB"}}
-        self.model = AutoModelForImageTextToText.from_pretrained(
-            model_id, revision=revision, dtype=torch.float16,
-            attn_implementation="sdpa", **placement).eval()
-        self.device_map = {key: str(value) for key, value in self.model.hf_device_map.items()}
-        used = {str(i) for i in range(num_gpus)}
-        actual = {value.removeprefix("cuda:") for value in self.device_map.values()}
-        if actual != used:
-            raise RuntimeError(f"Model must span GPUs {used}, without CPU/disk offload: {self.device_map}")
-        self.input_device = self.model.get_input_embeddings().weight.device
-        parameter_bytes = {str(i): 0 for i in range(num_gpus)}
-        for parameter in self.model.parameters():
-            if parameter.device.type == "cuda":
-                parameter_bytes[str(parameter.device.index)] += parameter.numel() * parameter.element_size()
-        self.parameter_gib_per_gpu = {key: value/2**30 for key, value in parameter_bytes.items()}
-        print(json.dumps({"stage": "model_loaded", "num_gpus": num_gpus,
-                          "device_map": self.device_map,
-                          "parameter_gib_per_gpu": self.parameter_gib_per_gpu,
-                          "input_device": str(self.input_device)}), flush=True)
+        self.torch, self.num_gpus = torch, num_gpus
         self.max_input, self.max_new_tokens = max_input, max_new_tokens
+        self.engine_settings = dict(
+            tensor_parallel_size=num_gpus, distributed_executor_backend="mp",
+            dtype="float16", max_model_len=max_input + max_new_tokens,
+            gpu_memory_utilization=gpu_memory_utilization,
+            max_num_seqs=max_num_seqs, max_num_batched_tokens=max_num_batched_tokens,
+            enable_chunked_prefill=True, enforce_eager=True,
+            language_model_only=True, enable_prefix_caching=False,
+            disable_custom_all_reduce=True, generation_config="vllm", seed=42)
+        self.model = LLM(model=model_id, revision=revision, **self.engine_settings)
+        self.tokenizer = self.model.get_tokenizer()
+        # Free text generation: no JSON schema, grammar, guided decoder, or tool-choice enforcer.
+        # End at the actual chat-turn boundary, rather than generating a simulated conversation.
+        stop_ids = [self.tokenizer.convert_tokens_to_ids("<|im_end|>")]
+        self.sampling = SamplingParams(temperature=0, max_tokens=max_new_tokens,
+                                      structured_outputs=None, stop_token_ids=stop_ids)
+        self.resolved_revision = getattr(self.model.llm_engine.model_config.hf_config, "_commit_hash", None)
         self.stats = []
-        self.resolved_revision = getattr(self.model.config, "_commit_hash", None)
+        self.observed_gpu_used_gib_per_gpu = {}
+        self.sample_gpu_memory()
+        print(json.dumps({"stage": "model_loaded", "backend": "vllm",
+                          "engine_settings": self.engine_settings,
+                          "structured_outputs": None}), flush=True)
+
+    def sample_gpu_memory(self):
+        # Driver-level usage includes vLLM worker processes. Samples are not transient peaks.
+        for i in range(self.num_gpus):
+            free, total = self.torch.cuda.mem_get_info(i)
+            used = (total - free)/2**30
+            self.observed_gpu_used_gib_per_gpu[str(i)] = max(
+                used, self.observed_gpu_used_gib_per_gpu.get(str(i), 0))
 
     def __call__(self, messages, tools):
         result = self.generate_batch([(messages, tools)])[0]
@@ -84,29 +86,22 @@ class HFGenerator:
         return results
 
     def _generate_encoded(self, encoded):
-        inputs = self.tokenizer.pad(encoded, padding=True, return_tensors="pt")
-        length = inputs["input_ids"].shape[-1]
-        inputs = {k: v.to(self.input_device) for k, v in inputs.items()}
         started = time.monotonic()
-        with self.torch.inference_mode():
-            output = self.model.generate(
-                **inputs, do_sample=False, max_new_tokens=self.max_new_tokens,
-                pad_token_id=self.tokenizer.pad_token_id, logits_to_keep=1)
-        rows = output[:, length:].tolist()
-        eos = self.model.generation_config.eos_token_id
-        eos = [eos] if isinstance(eos, int) else (eos or [])
-        results, output_lengths = [], []
-        for tokens in rows:
-            stop = next((i + 1 for i, token in enumerate(tokens) if token in eos), None)
-            output_lengths.append(stop or len(tokens))
-            if stop is None:
-                results.append(ValueError("Generation did not reach EOS; no truncated action executed"))
+        outputs = self.model.generate(
+            [{"prompt_token_ids": row["input_ids"]} for row in encoded],
+            sampling_params=self.sampling, use_tqdm=False)
+        results, lengths = [], []
+        for request in outputs:
+            output = request.outputs[0]
+            lengths.append(len(output.token_ids))
+            if output.finish_reason != "stop":
+                results.append(ValueError("Generation did not reach a stop; no truncated action executed"))
             else:
-                results.append(self.tokenizer.decode(tokens[:stop], skip_special_tokens=True))
+                results.append(output.text)
+        self.sample_gpu_memory()
         self.stats.append({"batch_size": len(encoded),
                            "input_tokens": [len(row["input_ids"]) for row in encoded],
-                           "padded_input_tokens": length, "output_tokens": output_lengths,
-                           "seconds": time.monotonic() - started})
+                           "output_tokens": lengths, "seconds": time.monotonic() - started})
         return results
 
 def read_rows(root, split, ids=None, limit=None):
@@ -135,6 +130,9 @@ def main():
     p.add_argument("--max-steps", type=int, default=8)
     p.add_argument("--num-gpus", type=int, choices=[1, 2], default=2)
     p.add_argument("--batch-size", type=int, default=4)
+    p.add_argument("--gpu-memory-utilization", type=float, default=0.80)
+    p.add_argument("--max-num-seqs", type=int, default=2)
+    p.add_argument("--max-num-batched-tokens", type=int, default=1024)
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args()
     if a.split != "train" and a.mode == "oracle":
@@ -143,6 +141,8 @@ def main():
         p.error("--mode asr requires --transcripts")
     if min(a.max_input, a.max_new_tokens, a.max_steps, a.batch_size) < 1 or (a.limit is not None and a.limit < 1):
         p.error("Token, step, batch and sample budgets must be positive")
+    if not 0 < a.gpu_memory_utilization < 1 or min(a.max_num_seqs, a.max_num_batched_tokens) < 1:
+        p.error("Memory utilization must be between 0 and 1; scheduler budgets must be positive")
     root = a.data_root.resolve()
     rows = read_rows(root, a.split, a.ids, a.limit)
     if not rows:
@@ -160,17 +160,17 @@ def main():
     if a.output.exists():
         p.error("Output already exists; choose a fresh directory (no implicit reset/resume)")
     a.output.mkdir(parents=True)
-    generator = HFGenerator(a.model, a.revision, a.max_input, a.max_new_tokens, a.num_gpus)
+    generator = VLLMGenerator(a.model, a.revision, a.max_input, a.max_new_tokens, a.num_gpus,
+                              a.gpu_memory_utilization, a.max_num_seqs, a.max_num_batched_tokens)
     config = {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()}
     config.update(resolved_revision=generator.resolved_revision,
                   catalog_sha256=hashlib.sha256(catalog_file.read_bytes()).hexdigest(),
                   selected_ids=[r["id"] for r in rows],
                   packages={n: importlib.metadata.version(n) for n in
-                            ("torch", "transformers", "accelerate")},
+                            ("torch", "transformers", "vllm")},
                   gpus=[generator.torch.cuda.get_device_name(i) for i in range(a.num_gpus)],
-                  device_map=generator.device_map,
-                  parameter_gib_per_gpu=generator.parameter_gib_per_gpu,
-                  input_device=str(generator.input_device))
+                  backend="vllm", structured_outputs=None,
+                  engine_settings=generator.engine_settings)
     (a.output/"config.json").write_text(json.dumps(config, indent=2))
     summaries = []
     started = time.monotonic()
@@ -205,9 +205,8 @@ def main():
               "statuses": dict(Counter(r["status"] for r in summaries)),
               "note": "Local approximation of published hash-gated F1; fuzzy tokenization may differ from BTC. No latency gate; model load and ASR excluded.",
               "generation": generator.stats,
-              "peak_cuda_gib_per_gpu": {
-                  str(i): generator.torch.cuda.max_memory_allocated(i)/2**30
-                  for i in range(a.num_gpus)}}
+              "observed_gpu_used_gib_per_gpu": generator.observed_gpu_used_gib_per_gpu,
+              "gpu_memory_note": "Driver usage sampled after engine load and completed generate batches, includes vLLM workers; not transient peak allocation."}
     if a.split == "train":
         for metric in ("canonical_state_match", "exact_call_sequence_match"):
             report[metric] = sum(r[metric] for r in summaries)/len(rows)

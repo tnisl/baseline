@@ -1,4 +1,5 @@
 # Separate environment from the Qwen3 / Transformers 4.x training notebooks.
+vllm==0.33.0
 transformers>=5.3,<6
 accelerate>=1.12,<2
 torch>=2.6
